@@ -19,7 +19,7 @@ $rows    = array();
 
 if ( null !== $report && is_array( $report['users'] ?? null ) ) {
 	foreach ( $report['users'] as $row ) {
-		if ( is_array( $row ) && ( ! empty( $row['flags'] ) || ! empty( $row['email_fallback'] ) || 'failed' === ( $row['status'] ?? '' ) ) ) {
+		if ( is_array( $row ) && ( ! empty( $row['flags'] ) || ! empty( $row['needs_attention'] ) ) ) {
 			$rows[] = $row;
 		}
 	}
@@ -27,7 +27,7 @@ if ( null !== $report && is_array( $report['users'] ?? null ) ) {
 ?>
 <h2 id="sigil-import-two-factor"><?php echo esc_html__( 'Import from Two Factor', 'sigil-2fa' ); ?></h2>
 <p style="max-width:720px;">
-	<?php echo esc_html__( 'Copies each user\'s email codes, authenticator app and backup codes from the Two Factor plugin into Sigil. Two Factor\'s own data is left untouched. Users whose authenticator cannot be carried over get email codes instead and are listed below. Running it again skips anything already in Sigil.', 'sigil-2fa' ); ?>
+	<?php echo esc_html__( 'Copies each user\'s email codes, authenticator app and backup codes from the Two Factor plugin into Sigil. Two Factor\'s own data is left untouched. Users with a method that cannot be carried over are listed below, and Two Factor keeps protecting them while it is active. Running it again skips anything already in Sigil.', 'sigil-2fa' ); ?>
 </p>
 <p style="max-width:720px;">
 	<?php echo esc_html__( 'Once the import looks right, deactivate Two Factor. Until then Sigil asks the users it covers and Two Factor asks everyone else, so nobody is asked twice.', 'sigil-2fa' ); ?>
@@ -54,9 +54,7 @@ if ( null !== $report && is_array( $report['users'] ?? null ) ) {
 				/* translators: %d: number of users */
 				'already'        => __( 'Users with a method already in Sigil: %d', 'sigil-2fa' ),
 				/* translators: %d: number of users */
-				'email_fallback' => __( 'Given email codes as a fallback: %d', 'sigil-2fa' ),
-				/* translators: %d: number of users */
-				'failed'         => __( 'Left without a method: %d', 'sigil-2fa' ),
+				'attention'      => __( 'Need attention, still protected by Two Factor: %d', 'sigil-2fa' ),
 			);
 			foreach ( $lines as $key => $format ) :
 				?>
@@ -82,8 +80,8 @@ if ( null !== $report && is_array( $report['users'] ?? null ) ) {
 						<td>
 							<?php
 							$notes = array();
-							if ( ! empty( $row['email_fallback'] ) ) {
-								$notes[] = __( 'Email codes added as a fallback', 'sigil-2fa' );
+							if ( ! empty( $row['needs_attention'] ) ) {
+								$notes[] = __( 'Ask this user to set up a method in Sigil before Two Factor is deactivated', 'sigil-2fa' );
 							}
 							foreach ( (array) ( $row['flags'] ?? array() ) as $flag ) {
 								$notes[] = \Sigil\Two_Factor_Import::flag_label( (string) $flag );

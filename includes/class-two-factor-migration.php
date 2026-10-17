@@ -76,7 +76,7 @@ final class Two_Factor_Migration {
 
 	private function has_two_factor_data(): bool {
 		$args = array(
-			'meta_key' => '_two_factor_enabled_providers', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_query_meta_key
+			'meta_key' => '_two_factor_enabled_providers', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
 			'fields'   => 'ID',
 			'number'   => 1,
 		);

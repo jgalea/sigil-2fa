@@ -194,10 +194,6 @@ final class CLI {
 
 		$items = [];
 		foreach ( $report['users'] as $row ) {
-			$flags = $row['flags'];
-			if ( $row['email_fallback'] ) {
-				array_unshift( $flags, 'email_fallback' );
-			}
 			$items[] = [
 				'ID'        => $row['user_id'],
 				'login'     => $row['login'],
@@ -205,7 +201,7 @@ final class CLI {
 				'imported'  => implode( ',', $row['imported'] ),
 				'already'   => implode( ',', $row['already'] ),
 				'preferred' => $row['preferred'],
-				'flags'     => implode( ',', $flags ),
+				'flags'     => implode( ',', $row['flags'] ),
 			];
 		}
 
@@ -216,7 +212,7 @@ final class CLI {
 		$c = $report['counts'];
 		\WP_CLI::log(
 			sprintf(
-				'%sUsers: %d, not using Two Factor: %d, email: %d, authenticator: %d, backup codes: %d, already in Sigil: %d, email fallback: %d, flagged: %d, left without a method: %d',
+				'%sUsers: %d, not using Two Factor: %d, email: %d, authenticator: %d, backup codes: %d, already in Sigil: %d, flagged: %d, needs attention: %d',
 				$dry_run ? '[dry run] ' : '',
 				$c['users'],
 				$c['not_using'],
@@ -224,14 +220,13 @@ final class CLI {
 				$c['totp'],
 				$c['backup'],
 				$c['already'],
-				$c['email_fallback'],
 				$c['flagged'],
-				$c['failed']
+				$c['attention']
 			)
 		);
 
-		if ( $c['failed'] > 0 ) {
-			\WP_CLI::warning( 'Some users have no usable Sigil method. Keep Two Factor active until they are sorted out.' );
+		if ( $c['attention'] > 0 ) {
+			\WP_CLI::warning( 'Some users had a method Sigil could not carry over. Two Factor keeps protecting them while it is active, so leave it active until they have set up a method in Sigil.' );
 			return;
 		}
 

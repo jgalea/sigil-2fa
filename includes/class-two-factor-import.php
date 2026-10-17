@@ -55,23 +55,36 @@ final class Two_Factor_Import {
 	}
 
 	/**
-	 * Keep Two Factor out of the way for anyone Sigil already protects.
+	 * Keep Two Factor out of the way where Sigil is already doing its job.
 	 *
 	 * Sigil challenges at wp_login priority 10 and exits, so Two Factor's
-	 * handler at PHP_INT_MAX never runs for those users. This makes that
-	 * explicit through the switch Two Factor 0.17 provides, so neither plugin
-	 * asks twice and Two Factor does not hold back the session cookie Sigil
-	 * issues after its own challenge.
+	 * handler at PHP_INT_MAX never runs for its users. Saying so through the
+	 * switch Two Factor 0.17 provides stops it holding back the session cookie
+	 * Sigil issues after its own challenge.
+	 *
+	 * It stands down only for interactive sign-ins by someone whose Two Factor
+	 * setup Sigil fully covers. API requests never reach wp_login, so there
+	 * Two Factor keeps refusing the account password. Someone whose methods
+	 * did not all come across stays with Two Factor until an administrator has
+	 * sorted them out.
 	 *
 	 * @param bool  $required
 	 * @param mixed $user
 	 */
 	public static function filter_two_factor_required( $required, $user ): bool {
-		if ( $user instanceof \WP_User && Providers::instance()->has_usable( (int) $user->ID ) ) {
-			return false;
+		if ( ! $user instanceof \WP_User || App_Passwords::is_api_request() ) {
+			return (bool) $required;
 		}
 
-		return (bool) $required;
+		if ( ! Providers::instance()->has_usable( (int) $user->ID ) ) {
+			return (bool) $required;
+		}
+
+		if ( self::import_user( (int) $user->ID, true )['needs_attention'] ) {
+			return (bool) $required;
+		}
+
+		return false;
 	}
 
 	/**
@@ -84,7 +97,7 @@ final class Two_Factor_Import {
 
 		foreach ( array( self::META_ENABLED, self::META_TOTP, self::META_BACKUP ) as $key ) {
 			$args = array(
-				'meta_key' => $key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_query_meta_key
+				'meta_key' => $key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
 				'fields'   => 'ID',
 				'number'   => -1,
 			);
@@ -120,9 +133,8 @@ final class Two_Factor_Import {
 			'totp'           => 0,
 			'backup'         => 0,
 			'already'        => 0,
-			'email_fallback' => 0,
+			'attention'      => 0,
 			'flagged'        => 0,
-			'failed'         => 0,
 		);
 
 		// One bulk migration is not a hundred separate security events. The
@@ -139,9 +151,6 @@ final class Two_Factor_Import {
 			if ( 'not_using' === $result['status'] ) {
 				++$counts['not_using'];
 			}
-			if ( 'failed' === $result['status'] ) {
-				++$counts['failed'];
-			}
 			foreach ( array( 'email', 'totp', 'backup' ) as $method ) {
 				if ( in_array( $method, $result['imported'], true ) ) {
 					++$counts[ $method ];
@@ -150,8 +159,8 @@ final class Two_Factor_Import {
 			if ( array() !== $result['already'] ) {
 				++$counts['already'];
 			}
-			if ( $result['email_fallback'] ) {
-				++$counts['email_fallback'];
+			if ( $result['needs_attention'] ) {
+				++$counts['attention'];
 			}
 			if ( array() !== $result['flags'] ) {
 				++$counts['flagged'];
@@ -174,26 +183,27 @@ final class Two_Factor_Import {
 	 *   imported: list<string>,
 	 *   already: list<string>,
 	 *   preferred: string,
-	 *   email_fallback: bool,
+	 *   needs_attention: bool,
 	 *   flags: list<string>
 	 * }
 	 */
 	public static function import_user( int $user_id, bool $dry_run ): array {
 		$result = array(
-			'user_id'        => $user_id,
-			'login'          => '',
-			'status'         => 'ok',
-			'imported'       => array(),
-			'already'        => array(),
-			'preferred'      => '',
-			'email_fallback' => false,
-			'flags'          => array(),
+			'user_id'         => $user_id,
+			'login'           => '',
+			'status'          => 'ok',
+			'imported'        => array(),
+			'already'         => array(),
+			'preferred'       => '',
+			'needs_attention' => false,
+			'flags'           => array(),
 		);
 
 		$user = get_userdata( $user_id );
 		if ( ! $user instanceof \WP_User ) {
-			$result['status']  = 'failed';
-			$result['flags'][] = 'user_not_found';
+			$result['status']          = 'needs_attention';
+			$result['needs_attention'] = true;
+			$result['flags'][]         = 'user_not_found';
 			return $result;
 		}
 		$result['login'] = $user->user_login;
@@ -209,31 +219,39 @@ final class Two_Factor_Import {
 			return $result;
 		}
 
-		$enabled = self::effective_providers( $stored );
-		foreach ( array_diff( $stored, array_keys( self::MAP ) ) as $unknown ) {
+		$enabled   = self::effective_providers( $stored );
+		$had_email = in_array( self::EMAIL, $enabled, true );
+		$sigil     = Store::methods( $user_id );
+		$writes    = array();
+
+		// Set when Two Factor was using something Sigil cannot carry over.
+		$lost = false;
+		// Set when Two Factor would actually have challenged this person.
+		$had_working = $had_email;
+
+		foreach ( array_diff( $enabled, array_keys( self::MAP ) ) as $unknown ) {
 			if ( 'Two_Factor_Dummy' !== $unknown ) {
 				$result['flags'][] = 'unsupported_method:' . sanitize_key( $unknown );
+				$lost              = true;
+				$had_working       = true;
 			}
 		}
 
-		$sigil      = Store::methods( $user_id );
-		$writes     = array();
-		$want_email = in_array( self::EMAIL, $enabled, true );
-
 		if ( in_array( self::TOTP, $enabled, true ) ) {
 			$key = self::totp_key( $user_id );
-			if ( isset( $sigil['totp'] ) ) {
-				$result['already'][] = 'totp';
-			} elseif ( '' === $key ) {
+			if ( '' === $key ) {
 				// Two Factor lists TOTP for anyone who opened its settings, but it
 				// only ever challenged with it once a secret was saved.
 				$result['flags'][] = 'totp_never_configured';
-				$want_email        = true;
+			} elseif ( isset( $sigil['totp'] ) ) {
+				$result['already'][] = 'totp';
+				$had_working         = true;
 			} else {
-				$data = self::totp_record( $key, $user_id );
+				$had_working = true;
+				$data        = self::totp_record( $key, $user_id );
 				if ( null === $data ) {
 					$result['flags'][] = 'totp_secret_unusable';
-					$want_email        = true;
+					$lost              = true;
 				} else {
 					$writes['totp'] = $data;
 				}
@@ -247,7 +265,8 @@ final class Two_Factor_Import {
 			} elseif ( array() === $hashes ) {
 				$result['flags'][] = 'backup_codes_none_left';
 			} else {
-				$codes = self::backup_record( $hashes, $user );
+				$had_working = true;
+				$codes       = self::backup_record( $hashes, $user );
 				if ( null === $codes ) {
 					$result['flags'][] = 'backup_codes_unverifiable';
 				} else {
@@ -256,28 +275,28 @@ final class Two_Factor_Import {
 			}
 		}
 
-		// Whatever happened above, the account must leave with something it can
-		// sign in with that is not a one-off list of codes.
-		$usable = self::usable_sign_in_methods( $user_id );
-		if ( array() === $usable && ! isset( $writes['totp'] ) ) {
-			$want_email = true;
-		}
-
-		if ( $want_email ) {
+		// Email codes only ever come across for someone who already had them.
+		// Handing them to anyone else would quietly swap the method they chose
+		// for a weaker one.
+		if ( $had_email ) {
 			if ( isset( $sigil['email'] ) ) {
 				$result['already'][] = 'email';
 			} elseif ( ! is_email( $user->user_email ) ) {
 				$result['flags'][] = 'email_address_invalid';
+				$lost              = true;
 			} else {
 				$writes['email'] = array( 'enrolled_at' => time() );
-				if ( ! in_array( self::EMAIL, $enabled, true ) ) {
-					$result['email_fallback'] = true;
-				}
 			}
 		}
 
-		if ( array() === $writes && array() === $usable && ! isset( $sigil['backup'] ) ) {
-			$result['status'] = 'failed';
+		$will_have_email  = isset( $sigil['email'] ) || isset( $writes['email'] );
+		$will_have_signin = array() !== self::usable_sign_in_methods( $user_id ) || isset( $writes['totp'] ) || isset( $writes['email'] );
+
+		if ( ( $lost && ! $will_have_email ) || ( $had_working && ! $will_have_signin ) ) {
+			$result['status']          = 'needs_attention';
+			$result['needs_attention'] = true;
+		} elseif ( ! $had_working ) {
+			$result['status'] = 'not_using';
 		}
 
 		$result['preferred'] = self::preferred( $user_id, $enabled, $sigil, $writes );
@@ -292,8 +311,9 @@ final class Two_Factor_Import {
 			$written = Store::methods( $user_id );
 			foreach ( array_keys( $writes ) as $provider_id ) {
 				if ( ! isset( $written[ $provider_id ] ) ) {
-					$result['status']  = 'failed';
-					$result['flags'][] = 'write_failed:' . $provider_id;
+					$result['status']          = 'needs_attention';
+					$result['needs_attention'] = true;
+					$result['flags'][]         = 'write_failed:' . $provider_id;
 					unset( $writes[ $provider_id ] );
 				}
 			}
@@ -426,7 +446,8 @@ final class Two_Factor_Import {
 	 * @return array{codes: list<array{hash: string, used: bool}>}|null
 	 */
 	private static function backup_record( array $hashes, \WP_User $user ): ?array {
-		$length = (int) apply_filters( 'two_factor_backup_code_length', self::BACKUP_LENGTH, $user );
+		// Two Factor's own filter, read so a site that changed its code length is caught.
+		$length = (int) apply_filters( 'two_factor_backup_code_length', self::BACKUP_LENGTH, $user ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
 		if ( self::BACKUP_LENGTH !== $length ) {
 			return null;
 		}
