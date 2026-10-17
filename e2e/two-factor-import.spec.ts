@@ -1,4 +1,4 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page, APIRequestContext } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { logout, totp } from './helpers';
 
@@ -42,7 +42,25 @@ async function sigilCode(page: Page, code: string) {
 	await page.waitForLoadState('load');
 }
 
+async function xmlrpcLogin(request: APIRequestContext, user: string, pass: string): Promise<boolean> {
+	const body = `<?xml version="1.0"?><methodCall><methodName>wp.getUsersBlogs</methodName><params>` +
+		`<param><value><string>${user}</string></value></param>` +
+		`<param><value><string>${pass}</string></value></param></params></methodCall>`;
+	const res = await request.post('/xmlrpc.php', { data: body, headers: { 'Content-Type': 'text/xml' } });
+	const text = await res.text();
+	expect(text).toContain('methodResponse');
+	return !text.includes('faultCode') && text.includes('blogName');
+}
+
+async function restLogin(request: APIRequestContext, user: string, pass: string): Promise<number> {
+	const res = await request.get('/?rest_route=/wp/v2/users/me', {
+		headers: { Authorization: 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64') },
+	});
+	return res.status();
+}
+
 let backupCode = '';
+let appPassword = '';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -112,15 +130,16 @@ test('the import carries each user across and reports the fallback', () => {
 	expect(cli(['sigil', 'status', 'tf_totp'])).toContain('Methods: (none)');
 
 	const out = cli(['sigil', 'import', 'two-factor']);
-	expect(out).toMatch(/email: 3, authenticator: 1, backup codes: 1/);
-	expect(out).toMatch(/email fallback: 1/);
-	expect(out).toMatch(/tf_nokey\s.*email_fallback/);
+	expect(out).toMatch(/email: 2, authenticator: 1, backup codes: 1/);
+	expect(out).toMatch(/needs attention: 0/);
+	expect(out).toMatch(/tf_nokey\s+not_using.*totp_never_configured/);
+	expect(cli(['sigil', 'status', 'tf_nokey'])).toContain('Methods: (none)');
 	expect(out).toContain('Import complete');
 
 	expect(cli(['sigil', 'status', 'tf_totp'])).toContain('Methods: backup, email, totp');
 
 	const again = cli(['sigil', 'import', 'two-factor']);
-	expect(again).toMatch(/email: 0, authenticator: 0, backup codes: 0, already in Sigil: 3/);
+	expect(again).toMatch(/email: 0, authenticator: 0, backup codes: 0, already in Sigil: 2/);
 
 	expect(php(`echo get_user_meta( ${userId('tf_totp')}, '_two_factor_totp_key', true ) === '${SECRET}' ? 'kept' : 'gone';`)).toContain('kept');
 });
@@ -139,6 +158,19 @@ test('with both plugins active, Sigil asks once and Two Factor stays out', async
 	await logout(page);
 });
 
+test('with both plugins active, the account password is refused on XML-RPC and REST', async ({ request }) => {
+	appPassword = cli(['user', 'application-password', 'create', 'tf_totp', 'e2e', '--porcelain']).split(/\s+/).pop() ?? '';
+	expect(appPassword.length).toBeGreaterThan(20);
+
+	// Control first: an application password is the sanctioned way in, so the
+	// refusal below is about the account password, not about the endpoint.
+	expect(await xmlrpcLogin(request, 'tf_totp', appPassword)).toBe(true);
+	expect(await restLogin(request, 'tf_totp', appPassword)).toBe(200);
+
+	expect(await xmlrpcLogin(request, 'tf_totp', PASS)).toBe(false);
+	expect(await restLogin(request, 'tf_totp', PASS)).toBe(401);
+});
+
 test('after deactivating Two Factor, the same authenticator signs in and a wrong one does not', async ({ page }) => {
 	test.setTimeout(120_000);
 	cli(['plugin', 'deactivate', 'two-factor']);
@@ -155,6 +187,12 @@ test('after deactivating Two Factor, the same authenticator signs in and a wrong
 	await page.goto('/wp-admin/');
 	await expect(page.locator('#wpadminbar')).toBeVisible();
 	await logout(page);
+});
+
+test('with Two Factor gone, Sigil alone refuses the account password on XML-RPC and REST', async ({ request }) => {
+	expect(await xmlrpcLogin(request, 'tf_totp', appPassword)).toBe(true);
+	expect(await xmlrpcLogin(request, 'tf_totp', PASS)).toBe(false);
+	expect(await restLogin(request, 'tf_totp', PASS)).toBe(401);
 });
 
 test('a Two Factor backup code works once in Sigil', async ({ page }) => {

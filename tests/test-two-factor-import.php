@@ -86,29 +86,54 @@ class Test_Two_Factor_Import extends WP_UnitTestCase {
 
 		$this->assertSame( array( 'email' ), $result['imported'] );
 		$this->assertContains( 'totp_never_configured', $result['flags'] );
-		$this->assertFalse( $result['email_fallback'] );
+		$this->assertFalse( $result['needs_attention'] );
 		$this->assertSame( 'email', Providers::preference( $uid ) );
 	}
 
-	public function test_totp_only_without_secret_falls_back_to_email(): void {
+	public function test_totp_only_without_secret_is_not_given_email(): void {
 		$uid    = $this->tf_user( array( 'Two_Factor_Totp' ) );
 		$result = Two_Factor_Import::import_user( $uid, false );
 
-		$this->assertSame( array( 'email' ), $result['imported'] );
-		$this->assertTrue( $result['email_fallback'] );
-		$this->assertSame( 'ok', $result['status'] );
+		$this->assertSame( array(), $result['imported'] );
+		$this->assertSame( 'not_using', $result['status'] );
+		$this->assertContains( 'totp_never_configured', $result['flags'] );
+		$this->assertSame( array(), Store::methods( $uid ) );
 	}
 
-	public function test_unusable_secret_falls_back_to_email(): void {
+	public function test_unusable_secret_without_email_needs_attention_and_gets_nothing(): void {
 		foreach ( array( 'GEZDGNBV', 'not a secret!!' ) as $bad ) {
 			$uid    = $this->tf_user( array( 'Two_Factor_Totp' ), array( '_two_factor_totp_key' => $bad ) );
 			$result = Two_Factor_Import::import_user( $uid, false );
 
-			$this->assertSame( array( 'email' ), $result['imported'], $bad );
+			$this->assertSame( array(), $result['imported'], $bad );
 			$this->assertContains( 'totp_secret_unusable', $result['flags'] );
-			$this->assertTrue( $result['email_fallback'] );
-			$this->assertFalse( Providers::instance()->get( 'totp' )->is_enrolled( $uid ) );
+			$this->assertTrue( $result['needs_attention'] );
+			$this->assertSame( array(), Store::methods( $uid ), 'no email swapped in for a method the user did not choose' );
 		}
+	}
+
+	public function test_unusable_secret_with_email_keeps_email(): void {
+		$uid    = $this->tf_user( array( 'Two_Factor_Email', 'Two_Factor_Totp' ), array( '_two_factor_totp_key' => 'GEZDGNBV' ) );
+		$result = Two_Factor_Import::import_user( $uid, false );
+
+		$this->assertSame( array( 'email' ), $result['imported'] );
+		$this->assertContains( 'totp_secret_unusable', $result['flags'] );
+		$this->assertFalse( $result['needs_attention'] );
+	}
+
+	public function test_unsupported_method_without_email_keeps_two_factor_in_charge(): void {
+		$user = self::factory()->user->create_and_get();
+		update_user_meta( $user->ID, '_two_factor_enabled_providers', array( 'Two_Factor_Totp', 'Two_Factor_FIDO_U2F' ) );
+		update_user_meta( $user->ID, '_two_factor_totp_key', self::SECRET );
+
+		$result = Two_Factor_Import::import_user( $user->ID, false );
+		$this->assertSame( array( 'totp' ), $result['imported'] );
+		$this->assertTrue( $result['needs_attention'] );
+		$this->assertContains( 'unsupported_method:two_factor_fido_u2f', $result['flags'] );
+		$this->assertFalse( Providers::instance()->get( 'email' )->is_enrolled( $user->ID ) );
+
+		$this->assertTrue( Providers::instance()->has_usable( $user->ID ) );
+		$this->assertTrue( apply_filters( 'two_factor_is_required_for_user', true, $user ), 'Two Factor must keep enforcing for a user whose methods did not all come across' );
 	}
 
 	public function test_totp_only_with_secret_gets_no_email(): void {
@@ -233,7 +258,7 @@ class Test_Two_Factor_Import extends WP_UnitTestCase {
 		clean_user_cache( $uid );
 
 		$result = Two_Factor_Import::import_user( $uid, false );
-		$this->assertSame( 'failed', $result['status'] );
+		$this->assertSame( 'needs_attention', $result['status'] );
 		$this->assertContains( 'email_address_invalid', $result['flags'] );
 	}
 
@@ -259,11 +284,10 @@ class Test_Two_Factor_Import extends WP_UnitTestCase {
 		$mailer = tests_retrieve_phpmailer_instance();
 
 		$this->assertSame( 4, $report['counts']['users'] );
-		$this->assertSame( 1, $report['counts']['not_using'] );
-		$this->assertSame( 3, $report['counts']['email'] );
+		$this->assertSame( 2, $report['counts']['not_using'] );
+		$this->assertSame( 2, $report['counts']['email'] );
 		$this->assertSame( 1, $report['counts']['totp'] );
-		$this->assertSame( 1, $report['counts']['email_fallback'] );
-		$this->assertSame( 0, $report['counts']['failed'] );
+		$this->assertSame( 0, $report['counts']['attention'] );
 		$this->assertSame( array(), $mailer->mock_sent );
 		$this->assertTrue( (bool) apply_filters( 'sigil_send_change_alert', true, 1 ), 'alerts switched back on afterwards' );
 	}
@@ -271,7 +295,8 @@ class Test_Two_Factor_Import extends WP_UnitTestCase {
 	public function test_two_factor_stands_down_for_sigil_users_only(): void {
 		$with    = self::factory()->user->create_and_get();
 		$without = self::factory()->user->create_and_get();
-		Providers::instance()->get( 'email' )->handle_enrol( $with->ID, array() );
+		update_user_meta( $with->ID, '_two_factor_enabled_providers', array( 'Two_Factor_Email' ) );
+		Two_Factor_Import::import_user( $with->ID, false );
 
 		$this->assertFalse( apply_filters( 'two_factor_is_required_for_user', true, $with ) );
 		$this->assertTrue( apply_filters( 'two_factor_is_required_for_user', true, $without ) );
