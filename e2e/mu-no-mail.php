@@ -13,4 +13,20 @@
 
 declare( strict_types=1 );
 
-add_filter( 'pre_wp_mail', '__return_true', 1 );
+// The last message is kept so a spec can read an emailed login code.
+add_filter(
+	'pre_wp_mail',
+	static function ( $short_circuit, $atts ) {
+		update_option(
+			'sigil_e2e_last_mail',
+			array(
+				'to'      => is_array( $atts['to'] ) ? implode( ',', $atts['to'] ) : (string) $atts['to'],
+				'message' => (string) $atts['message'],
+			),
+			false
+		);
+		return true;
+	},
+	1,
+	2
+);
