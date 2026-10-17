@@ -2,9 +2,9 @@
 Contributors: jeangalea
 Tags: two-factor, 2fa, passkeys, authentication, security
 Requires at least: 6.9
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.3.3
+Stable tag: 0.4.0
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -82,7 +82,7 @@ No. All authentication happens on your own site. The plugin does not contact any
 
 = Does this work with application passwords, the REST API, and XML-RPC? =
 
-Application passwords bypass 2FA by design, as that is how WordPress authenticates automated requests. The settings screen documents this, and application passwords can be disabled per role to close that path.
+Application passwords bypass 2FA by design, as that is how WordPress authenticates automated requests. The settings screen documents this, and application passwords can be disabled per role to close that path. The account password itself is refused on XML-RPC and REST for anyone with a second factor, because those requests never reach the challenge.
 
 = Which PHP version do I need for passkeys? =
 
@@ -96,11 +96,20 @@ Yes. The policy is set once for the network under Network Admin → Settings →
 
 Yes. Put `[sigil_2fa]` on a page. Users manage their methods from there, and anyone required to enrol is sent to that page rather than to the dashboard.
 
+= Can I switch from the Two Factor plugin? =
+
+Yes. With both plugins active, open Settings → Sigil and use Import from Two Factor, or run `wp sigil import two-factor` (add `--dry-run` to preview). Email codes, authenticator apps and backup codes come across, so people keep signing in with the same app. Anyone with a method that cannot be carried over is listed in the report, and Two Factor keeps protecting them while it stays active. Two Factor's own data is not changed. Once everyone on that list has set up a method in Sigil, deactivate Two Factor.
+
 = Can I enforce 2FA only for administrators? =
 
 Yes. Settings → Sigil lets you pick exactly which roles are required, and set a grace period so people are prompted to enrol rather than locked out immediately.
 
 == Changelog ==
+
+= 0.4.0 =
+* Moving from the Two Factor plugin no longer means everyone enrols again. Settings → Sigil and `wp sigil import two-factor` carry each user's email codes, authenticator app and backup codes across, so the same authenticator keeps working. Anyone with a method that cannot be carried over is named in the report and stays with Two Factor until they set one up in Sigil. Nobody is moved to email codes they did not already use, and Two Factor's own data is left as it was.
+* While both plugins are active, Two Factor stands down for anyone Sigil already covers, so nobody is asked for a code twice. A notice offers the import until Two Factor is deactivated.
+* Security: XML-RPC and REST no longer accept the account password from someone with a second factor. Those requests never reach the two-factor challenge, so a password alone was enough there. Application passwords still work.
 
 = 0.3.3 =
 * Everyone sharing one address, as an office, a school or a mobile network does, is no longer held to a single person's allowance of attempts. A few colleagues mistyping could stop everybody else signing in. Guessing any one account is bounded by the same five attempts as before.
