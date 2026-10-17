@@ -145,6 +145,100 @@ final class CLI {
 	}
 
 	/**
+	 * Import users' two-factor methods from another plugin.
+	 *
+	 * Reads the source plugin's data and never changes or deletes it. Anything
+	 * already set up in Sigil is left alone, so it is safe to run again.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <source>
+	 * : Plugin to import from.
+	 * ---
+	 * options:
+	 *   - two-factor
+	 * ---
+	 *
+	 * [--dry-run]
+	 * : Report what would be imported without writing anything.
+	 *
+	 * [--user=<user>]
+	 * : Only this user (ID, login, or email).
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp sigil import two-factor --dry-run
+	 *     wp sigil import two-factor
+	 *     wp sigil import two-factor --user=12
+	 *
+	 * @param list<string>               $args
+	 * @param array<string, string|bool> $assoc_args
+	 */
+	public function import( array $args, array $assoc_args = [] ): void {
+		if ( 'two-factor' !== ( $args[0] ?? '' ) ) {
+			\WP_CLI::error( 'Unknown source. Supported: two-factor' );
+		}
+
+		$dry_run = ! empty( $assoc_args['dry-run'] );
+		$ids     = null;
+
+		if ( isset( $assoc_args['user'] ) ) {
+			$user = $this->resolve_user( (string) $assoc_args['user'] );
+			if ( null === $user ) {
+				\WP_CLI::error( 'User not found.' );
+			}
+			$ids = [ (int) $user->ID ];
+		}
+
+		$report = Two_Factor_Import::run( $ids, $dry_run );
+
+		$items = [];
+		foreach ( $report['users'] as $row ) {
+			$flags = $row['flags'];
+			if ( $row['email_fallback'] ) {
+				array_unshift( $flags, 'email_fallback' );
+			}
+			$items[] = [
+				'ID'        => $row['user_id'],
+				'login'     => $row['login'],
+				'status'    => $row['status'],
+				'imported'  => implode( ',', $row['imported'] ),
+				'already'   => implode( ',', $row['already'] ),
+				'preferred' => $row['preferred'],
+				'flags'     => implode( ',', $flags ),
+			];
+		}
+
+		if ( [] !== $items ) {
+			\WP_CLI\Utils\format_items( 'table', $items, [ 'ID', 'login', 'status', 'imported', 'already', 'preferred', 'flags' ] );
+		}
+
+		$c = $report['counts'];
+		\WP_CLI::log(
+			sprintf(
+				'%sUsers: %d, not using Two Factor: %d, email: %d, authenticator: %d, backup codes: %d, already in Sigil: %d, email fallback: %d, flagged: %d, left without a method: %d',
+				$dry_run ? '[dry run] ' : '',
+				$c['users'],
+				$c['not_using'],
+				$c['email'],
+				$c['totp'],
+				$c['backup'],
+				$c['already'],
+				$c['email_fallback'],
+				$c['flagged'],
+				$c['failed']
+			)
+		);
+
+		if ( $c['failed'] > 0 ) {
+			\WP_CLI::warning( 'Some users have no usable Sigil method. Keep Two Factor active until they are sorted out.' );
+			return;
+		}
+
+		\WP_CLI::success( $dry_run ? 'Dry run complete. Nothing was written.' : 'Import complete. Two Factor data was left in place; deactivate Two Factor once you have checked the result.' );
+	}
+
+	/**
 	 * @return list<string>
 	 */
 	private function method_labels( int $user_id ): array {
