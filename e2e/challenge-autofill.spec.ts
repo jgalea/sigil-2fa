@@ -18,6 +18,19 @@ async function expectSignedIn(page: Page) {
 	await expect(page.locator('#wpadminbar')).toBeVisible();
 }
 
+// Add-ons put their own controls (such as the trusted-device checkbox) between
+// the code and the button, so the test follows the tab order rather than
+// counting presses.
+async function tabTo(page: Page, selector: string) {
+	for (let i = 0; i < 6; i++) {
+		await page.keyboard.press('Tab');
+		if (await page.locator(selector).evaluate((el) => el === document.activeElement)) {
+			return;
+		}
+	}
+	throw new Error(`${selector} was not reached by tabbing`);
+}
+
 test.beforeEach(() => resetTwoFactor());
 
 test('the code field carries the attributes password managers look for', async ({ page }) => {
@@ -54,16 +67,14 @@ test('a code pasted with a space or a dash still works', async ({ page }) => {
 test('the challenge can be completed from the keyboard alone', async ({ page }) => {
 	const secret = await reachChallenge(page);
 	await page.keyboard.type(totp(secret));
-	await page.keyboard.press('Tab');
-	await expect(page.locator('#sigil-authenticate')).toBeFocused();
+	await tabTo(page, '#sigil-authenticate');
 	await page.keyboard.press('Enter');
 	await expectSignedIn(page);
 });
 
 test('the method switcher is reachable by keyboard and shows focus', async ({ page }) => {
 	await reachChallenge(page);
-	await page.keyboard.press('Tab');
-	await page.keyboard.press('Tab');
+	await tabTo(page, '.sigil-challenge__method');
 	const switcher = page.locator('.sigil-challenge__method').first();
 	await expect(switcher).toBeFocused();
 	const outline = await switcher.evaluate((el) => getComputedStyle(el).outlineStyle);
