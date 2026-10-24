@@ -127,10 +127,10 @@ final class Login_Guard {
 	 * does after they change their own password.
 	 *
 	 * An account created in this same request is let through. WooCommerce signs
-	 * a new customer in from its checkout, and when every account counts as
-	 * covered by an emailed code, holding that cookie would leave people who
-	 * have just registered signed out. Registering can only create an account,
-	 * never reach an existing one.
+	 * a new customer in from its checkout, over AJAX or its Store API on REST,
+	 * and when every account counts as covered by an emailed code, holding that
+	 * cookie would leave people who have just registered signed out.
+	 * Registering can only create an account, never reach an existing one.
 	 *
 	 * @param bool   $send
 	 * @param int    $expire
@@ -179,10 +179,18 @@ final class Login_Guard {
 			return false;
 		}
 
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- routing check only.
-		$action = isset( $_REQUEST['action'] ) && is_string( $_REQUEST['action'] ) ? sanitize_key( wp_unslash( $_REQUEST['action'] ) ) : '';
+		// Compared exactly as admin-ajax dispatches it. sanitize_key() would
+		// lowercase it and let a differently cased action match a listed one.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- routing check only, compared strictly against a fixed list.
+		$action = isset( $_REQUEST['action'] ) && is_string( $_REQUEST['action'] ) ? wp_unslash( $_REQUEST['action'] ) : '';
 		if ( '' === $action ) {
 			return false;
+		}
+
+		// Wordfence's check is only trusted where Wordfence has registered it.
+		$defaults = array();
+		if ( has_action( 'wp_ajax_nopriv_wordfence_ls_authenticate' ) ) {
+			$defaults[] = 'wordfence_ls_authenticate';
 		}
 
 		/**
@@ -195,7 +203,7 @@ final class Login_Guard {
 		 *
 		 * @param string[] $actions
 		 */
-		$actions = (array) apply_filters( 'sigil_credential_check_ajax_actions', array( 'wordfence_ls_authenticate' ) );
+		$actions = (array) apply_filters( 'sigil_credential_check_ajax_actions', $defaults );
 
 		return in_array( $action, $actions, true );
 	}
