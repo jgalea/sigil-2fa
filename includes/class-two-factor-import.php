@@ -70,8 +70,8 @@ final class Two_Factor_Import {
 	 * Sigil issues after its own challenge.
 	 *
 	 * It stands down only for interactive sign-ins by someone whose Two Factor
-	 * setup Sigil fully covers. API requests never reach wp_login, so there
-	 * Two Factor keeps refusing the account password. Someone whose methods
+	 * setup Sigil fully covers. Sigil does not challenge API, AJAX or cron
+	 * sign-ins, so there Two Factor keeps refusing the account password. Someone whose methods
 	 * did not all come across stays with Two Factor until an administrator has
 	 * sorted them out.
 	 *
@@ -79,7 +79,7 @@ final class Two_Factor_Import {
 	 * @param mixed $user
 	 */
 	public static function filter_two_factor_required( $required, $user ): bool {
-		if ( ! $user instanceof \WP_User || App_Passwords::is_api_request() ) {
+		if ( ! $user instanceof \WP_User || ! Import::sigil_challenges_here() ) {
 			return (bool) $required;
 		}
 

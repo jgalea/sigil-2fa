@@ -336,37 +336,47 @@ final class Wordfence_Import {
 	/**
 	 * On the form post, take Wordfence's authenticate check out for a user Sigil
 	 * covers, so Sigil's challenge on wp_login is the only one. Runs just before
-	 * it, once the password has been checked.
+	 * it, once the password has been checked, and only on requests where Sigil
+	 * will actually challenge.
 	 *
 	 * @param mixed $user
 	 * @return mixed
 	 */
 	public static function stand_down( $user ) {
-		if ( ! $user instanceof \WP_User || App_Passwords::is_api_request() || ! self::is_active() || ! self::covers( $user ) ) {
+		if ( ! $user instanceof \WP_User || ! Import::sigil_challenges_here() || ! self::is_active() || ! self::covers( $user ) ) {
 			return $user;
 		}
 
-		global $wp_filter;
-		if ( isset( $wp_filter['authenticate']->callbacks[25] ) ) {
-			foreach ( $wp_filter['authenticate']->callbacks[25] as $callback ) {
-				if ( is_array( $callback['function'] ) && $callback['function'][0] instanceof \WordfenceLS\Controller_WordfenceLS ) {
-					remove_filter( 'authenticate', $callback['function'], 25 );
-				}
-			}
-		}
+		self::remove_wordfence_check();
 
 		return $user;
+	}
+
+	private static function remove_wordfence_check(): void {
+		global $wp_filter;
+		if ( ! isset( $wp_filter['authenticate']->callbacks[25] ) ) {
+			return;
+		}
+
+		foreach ( $wp_filter['authenticate']->callbacks[25] as $callback ) {
+			if ( is_array( $callback['function'] ) && $callback['function'][0] instanceof \WordfenceLS\Controller_WordfenceLS ) {
+				remove_filter( 'authenticate', $callback['function'], 25 );
+			}
+		}
 	}
 
 	/**
 	 * Wordfence's login form posts the credentials to its own AJAX action first
 	 * and shows its code prompt when that says so. For a user Sigil covers,
 	 * answer that step the way Wordfence answers for someone without its
-	 * two-factor, and let the form submit to Sigil's challenge.
+	 * two-factor, and let the form submit to wp-login.php, where Sigil
+	 * challenges.
 	 *
-	 * The password is checked here through the full authenticate chain, so this
-	 * is never an oracle that skips another plugin's lockout. Anyone else falls
-	 * through to Wordfence untouched.
+	 * This only answers a question. wp_authenticate() checks the password
+	 * through the rest of the authenticate chain, so no other plugin's lockout
+	 * is skipped, and it never sets a session: the only way in is the form post
+	 * that follows, which meets Sigil's challenge. Anyone else falls through to
+	 * Wordfence untouched.
 	 */
 	public static function ajax_stand_down(): void {
 		// Wordfence's own login step, which carries no nonce; the credentials are
@@ -385,6 +395,7 @@ final class Wordfence_Import {
 			return;
 		}
 
+		self::remove_wordfence_check();
 		$result = wp_authenticate( $login, $password );
 		if ( $result instanceof \WP_User ) {
 			wp_send_json( array( 'login' => 1 ) );

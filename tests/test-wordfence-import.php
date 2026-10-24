@@ -213,6 +213,49 @@ class Test_Wordfence_Import extends WP_UnitTestCase {
 		$this->assertNotContains( $uid, Wordfence_Import::candidates() );
 	}
 
+	/**
+	 * Sigil's challenge does not run for AJAX, cron, XML-RPC or REST sign-ins,
+	 * so Wordfence must keep its check there or a password alone gets in.
+	 */
+	public function test_wordfence_keeps_its_check_where_sigil_does_not_challenge(): void {
+		require_once __DIR__ . '/stubs/class-wordfence-ls.php';
+
+		$uid = $this->wf_totp_user( array( '0123 4567 89ab cdef' ) );
+		Wordfence_Import::import_user( $uid, false );
+		wp_set_password( 'pass-word-1', $uid );
+		$login = get_userdata( $uid )->user_login;
+
+		$wordfence = new \WordfenceLS\Controller_WordfenceLS();
+		add_filter( 'authenticate', array( $wordfence, '_authenticate' ), 25, 3 );
+		add_filter( 'send_auth_cookies', '__return_false' );
+		$cookies = 0;
+		add_action(
+			'set_auth_cookie',
+			static function () use ( &$cookies ) {
+				++$cookies;
+			}
+		);
+
+		add_filter( 'wp_doing_ajax', '__return_true' );
+		$result = wp_signon( array( 'user_login' => $login, 'user_password' => 'pass-word-1' ) );
+		remove_filter( 'wp_doing_ajax', '__return_true' );
+
+		$this->assertWPError( $result, 'an admin-ajax sign-in must still face Wordfence' );
+		$this->assertSame( 0, $cookies, 'no session from a password alone' );
+		$this->assertSame( 25, has_filter( 'authenticate', array( $wordfence, '_authenticate' ) ) );
+
+		// On an interactive sign-in Sigil challenges on wp_login, so Wordfence
+		// steps aside for this covered user.
+		$this->assertSame( get_userdata( $uid )->ID, Wordfence_Import::stand_down( get_userdata( $uid ) )->ID );
+		$this->assertFalse( has_filter( 'authenticate', array( $wordfence, '_authenticate' ) ) );
+
+		$stranger = self::factory()->user->create_and_get();
+		add_filter( 'authenticate', array( $wordfence, '_authenticate' ), 25, 3 );
+		Wordfence_Import::stand_down( $stranger );
+		$this->assertSame( 25, has_filter( 'authenticate', array( $wordfence, '_authenticate' ) ), 'nobody else loses Wordfence' );
+		remove_filter( 'authenticate', array( $wordfence, '_authenticate' ), 25 );
+	}
+
 	public function test_only_fully_covered_users_count_as_covered(): void {
 		$covered = $this->wf_totp_user( array( '0123 4567 89ab cdef' ) );
 		Wordfence_Import::import_user( $covered, false );

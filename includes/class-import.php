@@ -192,6 +192,15 @@ final class Import {
 	}
 
 	/**
+	 * Whether Sigil's challenge on wp_login runs for this request. It does not
+	 * for XML-RPC, REST, AJAX or cron sign-ins, and a source plugin may only
+	 * stand down where it does, or a password alone would get in.
+	 */
+	public static function sigil_challenges_here(): bool {
+		return ! App_Passwords::is_api_request() && ! wp_doing_ajax() && ! wp_doing_cron();
+	}
+
+	/**
 	 * Methods Sigil can already challenge this account with, other than backup
 	 * codes. Asked of the providers rather than read from the stored list, so a
 	 * passkey row whose credentials are gone does not count.
