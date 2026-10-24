@@ -61,13 +61,43 @@ final class Policy {
 			return false;
 		}
 
-		$policy = self::get();
-		if ( ! $policy['enabled'] ) {
+		$user = get_userdata( $user_id );
+
+		return $user instanceof \WP_User && self::covers( self::get(), $user );
+	}
+
+	/**
+	 * Whether switching the policy to this one would put the person making the
+	 * change under a requirement they cannot yet meet.
+	 *
+	 * Only a new requirement counts. Someone already covered by the stored
+	 * policy is not being locked out by an unrelated save.
+	 *
+	 * @param array<string, mixed> $patch
+	 */
+	public static function would_lock_out( int $user_id, array $patch ): bool {
+		$user = $user_id > 0 ? get_userdata( $user_id ) : false;
+		if ( ! $user instanceof \WP_User ) {
 			return false;
 		}
 
-		$user = get_userdata( $user_id );
-		if ( ! $user instanceof \WP_User ) {
+		$current = self::get();
+		$next    = self::sanitize( array_merge( $current, $patch ) );
+
+		return self::covers( $next, $user )
+			&& ! self::covers( $current, $user )
+			&& ! Providers::instance()->has_usable( $user_id );
+	}
+
+	public static function lockout_message(): string {
+		return __( 'Nothing was saved. This would require two-factor authentication for your own account, and you have not set up a method yet, so you would be locked out. Set up a passkey or an authenticator app first, then try again.', 'sigil-2fa' );
+	}
+
+	/**
+	 * @param array{enabled: bool, roles: array<string, bool>, min_capability: string} $policy
+	 */
+	private static function covers( array $policy, \WP_User $user ): bool {
+		if ( ! $policy['enabled'] ) {
 			return false;
 		}
 
@@ -81,11 +111,8 @@ final class Policy {
 		}
 
 		$cap = $policy['min_capability'];
-		if ( '' !== $cap && user_can( $user, $cap ) ) {
-			return true;
-		}
 
-		return false;
+		return '' !== $cap && user_can( $user, $cap );
 	}
 
 	public static function deadline_for( int $user_id ): ?int {

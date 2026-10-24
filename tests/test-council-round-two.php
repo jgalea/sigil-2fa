@@ -17,7 +17,7 @@ class Test_Council_Round_Two extends WP_UnitTestCase {
 		}
 
 		\Sigil\Schema::install();
-		foreach ( array( 'class-method-policy', 'class-zero-setup', 'class-always-email', 'class-bypass' ) as $f ) {
+		foreach ( array( 'class-method-policy', 'class-bypass' ) as $f ) {
 			require_once SIGIL_DIR . 'pro/' . $f . '.php';
 		}
 
@@ -29,7 +29,6 @@ class Test_Council_Round_Two extends WP_UnitTestCase {
 
 	public function tear_down(): void {
 		delete_option( \Sigil\Pro\Method_Policy::OPTION );
-		delete_option( \Sigil\Pro\Zero_Setup::OPTION );
 		global $wp_rest_server;
 		$wp_rest_server = null;
 		parent::tear_down();
@@ -107,47 +106,6 @@ class Test_Council_Round_Two extends WP_UnitTestCase {
 		}
 
 		$this->assertSame( $form_can_use, 200 === $rest, 'both routes must agree' );
-	}
-
-	// Automatic email is a floor for accounts with nothing, not an extra door on
-	// accounts that already hold something stronger.
-	public function test_zero_setup_does_not_add_email_to_an_account_with_a_stronger_factor(): void {
-		\Sigil\Pro\Zero_Setup::set_enabled( true );
-		\Sigil\Pro\Zero_Setup::instance()->register();
-
-		$bare   = self::factory()->user->create();
-		$strong = self::factory()->user->create();
-		\Sigil\Store::set_method( $strong, 'totp', array( 'secret' => 'x' ) );
-
-		$ids = static function ( int $id ): array {
-			return array_map(
-				static function ( \Sigil\Provider $p ): string {
-					return $p->id();
-				},
-				\Sigil\Providers::instance()->enrolled_for( $id )
-			);
-		};
-
-		$this->assertContains( 'email', $ids( $bare ), 'an account with nothing is covered' );
-		$this->assertNotContains( 'email', $ids( $strong ), 'an account with an authenticator is not lowered to its inbox' );
-	}
-
-	public function test_zero_setup_still_honours_a_deliberate_email_enrolment(): void {
-		\Sigil\Pro\Zero_Setup::set_enabled( true );
-		\Sigil\Pro\Zero_Setup::instance()->register();
-
-		$user = self::factory()->user->create();
-		\Sigil\Store::set_method( $user, 'email', array( 'enrolled_at' => 1 ) );
-		\Sigil\Store::set_method( $user, 'totp', array( 'secret' => 'x' ) );
-
-		$ids = array_map(
-			static function ( \Sigil\Provider $p ): string {
-				return $p->id();
-			},
-			\Sigil\Providers::instance()->enrolled_for( $user )
-		);
-
-		$this->assertContains( 'email', $ids, 'chosen email is still email' );
 	}
 
 	// One excused sign-in has to mean one, and asking whether somebody would be

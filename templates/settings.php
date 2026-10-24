@@ -1,10 +1,11 @@
 <?php
 /**
- * Settings page template. Variables: $policy, $roles, $updated.
+ * Settings page template. Variables: $policy, $roles, $updated, $locked_out.
  *
  * @var array  $policy
  * @var array  $roles
  * @var bool   $updated
+ * @var bool   $locked_out
  */
 
 declare( strict_types=1 );
@@ -22,13 +23,21 @@ if ( ! isset( $policy ) || ! is_array( $policy ) ) {
 if ( ! isset( $roles ) || ! is_array( $roles ) ) {
 	$roles = array();
 }
-$updated = ! empty( $updated );
+$updated    = ! empty( $updated );
+$locked_out = ! empty( $locked_out );
 ?>
 <div class="wrap">
 	<h1><?php echo esc_html__( 'Sigil', 'sigil-2fa' ); ?></h1>
 
 	<?php if ( $updated ) : ?>
 		<div class="notice notice-success is-dismissible"><p><?php echo esc_html__( 'Settings saved.', 'sigil-2fa' ); ?></p></div>
+	<?php endif; ?>
+
+	<?php if ( $locked_out ) : ?>
+		<div class="notice notice-error"><p>
+			<?php echo esc_html( \Sigil\Policy::lockout_message() ); ?>
+			<a href="<?php echo esc_url( admin_url( 'users.php?page=' . \Sigil\Enrolment::PAGE_SLUG ) ); ?>"><?php echo esc_html__( 'Set up two-factor authentication', 'sigil-2fa' ); ?></a>
+		</p></div>
 	<?php endif; ?>
 
 	<?php if ( \Sigil\Network::is_network() ) : ?>
@@ -145,6 +154,36 @@ $updated = ! empty( $updated );
 					<?php endif; ?>
 				</td>
 			</tr>
+
+			<tr>
+				<th scope="row">
+					<label for="sigil-trusted-days"><?php echo esc_html__( 'Remember this device', 'sigil-2fa' ); ?></label>
+				</th>
+				<td>
+					<input type="number" min="1" max="365" step="1" id="sigil-trusted-days" name="sigil_trusted_days" value="<?php echo esc_attr( (string) \Sigil\Trusted_Devices::trust_days() ); ?>" class="small-text" />
+					<?php echo esc_html__( 'days', 'sigil-2fa' ); ?>
+					<p class="description">
+						<?php echo esc_html__( 'How long a device stays trusted after someone ticks the box on the challenge screen. Trust ends when they change their password or their methods.', 'sigil-2fa' ); ?>
+					</p>
+					<label>
+						<input type="checkbox" name="sigil_revoke_trusted" value="1" />
+						<?php echo esc_html__( 'Forget my trusted devices', 'sigil-2fa' ); ?>
+					</label>
+				</td>
+			</tr>
+
+			<tr>
+				<th scope="row"><?php echo esc_html__( 'Accounts with nothing set up', 'sigil-2fa' ); ?></th>
+				<td>
+					<label>
+						<input type="checkbox" name="sigil_zero_setup" value="1" <?php checked( \Sigil\Zero_Setup::is_enabled() ); ?> />
+						<?php echo esc_html__( 'Use email codes for accounts with nothing set up', 'sigil-2fa' ); ?>
+					</label>
+					<p class="description">
+						<?php echo esc_html__( 'Counts an account\'s own email address as a second factor, so a required policy never meets a wall. It is the weakest method and sorts last: anyone with a passkey or an authenticator is still challenged with that.', 'sigil-2fa' ); ?>
+					</p>
+				</td>
+			</tr>
 		</table>
 
 		<?php submit_button( __( 'Save settings', 'sigil-2fa' ) ); ?>
@@ -153,7 +192,7 @@ $updated = ! empty( $updated );
 	<?php
 	/**
 	 * Fires at the end of the Sigil settings screen. Extension point for
-	 * add-ons (Pro license entry, trusted-device controls).
+	 * add-ons (Pro license entry, branding, method rules).
 	 */
 	do_action( 'sigil_settings_after' );
 	?>

@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-# Runs the paid add-on's own suite. One word, because wp-env's `run` passes its
-# argument as a single exec token.
-set -e
-if [ ! -d pro/tests ]; then
-	echo "No add-on in this checkout; nothing to run."
-	exit 0
-fi
-exec vendor/bin/phpunit -c phpunit-pro.xml.dist "$@"

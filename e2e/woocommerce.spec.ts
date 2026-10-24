@@ -1,12 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { resetTwoFactor, login } from './helpers';
-
-// The account tab belongs to the paid add-on, which lives in its own repository
-// and is absent from a checkout of this one. Without this the specs fail on CI
-// for the honest reason that there is nothing there to test.
-const proInstalled = existsSync('pro/loader.php');
 
 function cli(args: string[]): string {
 	return execFileSync('npx', ['@wordpress/env', 'run', 'cli', 'wp', ...args], { encoding: 'utf8' }).trim();
@@ -16,11 +10,6 @@ let available = true;
 let provisioningError = '';
 
 test.beforeAll(() => {
-	if (!proInstalled) {
-		available = false;
-		return;
-	}
-
 	try {
 		// Retried once: a fresh environment occasionally loses the first attempt,
 		// and a silent skip here would report a green run with the feature
@@ -47,9 +36,6 @@ test.beforeAll(() => {
 		}
 		cli(['option', 'update', 'woocommerce_onboarding_profile', '{"completed":true,"skipped":true}', '--format=json']);
 
-		// The tab lives behind the licence, like every other paid feature.
-		cli(['option', 'update', 'sigil_pro_license',
-			'{"key":"DEV-TEST-KEY","status":"active","expires_at":0,"checked_at":0}', '--format=json']);
 		cli(['rewrite', 'flush', '--hard']);
 
 		const accountPage = cli(['option', 'get', 'woocommerce_myaccount_page_id']);
@@ -62,24 +48,13 @@ test.beforeAll(() => {
 	}
 });
 
-test.afterAll(() => {
-	try {
-		cli(['option', 'delete', 'sigil_pro_license']);
-	} catch {
-		// nothing to undo
-	}
-});
-
 test.beforeEach(() => resetTwoFactor());
 
 // This tab has broken twice in ways only a real page load showed: once because
 // the WooCommerce check ran while plugins were still loading, and once because
 // the endpoint claimed the site root and a page shadowed it.
 test('the account area gets a two-factor tab that actually resolves', async ({ page }) => {
-	test.skip(!proInstalled, 'the paid add-on is not present in this checkout');
-
-	// The add-on is here, so this feature exists and must be exercised. A broken
-	// environment is a failure to look at, not a skip to overlook.
+	// A broken environment is a failure to look at, not a skip to overlook.
 	if (!available) {
 		throw new Error(`WooCommerce could not be provisioned, so the tab went untested: ${provisioningError}`);
 	}
@@ -102,10 +77,7 @@ test('the account area gets a two-factor tab that actually resolves', async ({ p
 });
 
 test('a customer can enrol from the account tab', async ({ page }) => {
-	test.skip(!proInstalled, 'the paid add-on is not present in this checkout');
-
-	// The add-on is here, so this feature exists and must be exercised. A broken
-	// environment is a failure to look at, not a skip to overlook.
+	// A broken environment is a failure to look at, not a skip to overlook.
 	if (!available) {
 		throw new Error(`WooCommerce could not be provisioned, so the tab went untested: ${provisioningError}`);
 	}

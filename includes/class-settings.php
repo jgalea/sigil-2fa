@@ -59,6 +59,8 @@ final class Settings {
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice flag set by our own redirect.
 		$updated = isset( $_GET['updated'] ) && '1' === sanitize_key( wp_unslash( $_GET['updated'] ) );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice flag set by our own redirect.
+		$locked_out = isset( $_GET['lockout'] ) && '1' === sanitize_key( wp_unslash( $_GET['lockout'] ) );
 
 		require SIGIL_DIR . 'templates/settings.php';
 	}
@@ -99,15 +101,28 @@ final class Settings {
 			$cap = sanitize_key( $raw['min_capability'] );
 		}
 
-		Policy::update(
-			array(
-				'enabled'             => ! empty( $raw['enabled'] ),
-				'roles'               => $roles_in,
-				'min_capability'      => $cap,
-				'grace_days'          => $grace,
-				'block_app_passwords' => $block_in,
-			)
+		$patch = array(
+			'enabled'             => ! empty( $raw['enabled'] ),
+			'roles'               => $roles_in,
+			'min_capability'      => $cap,
+			'grace_days'          => $grace,
+			'block_app_passwords' => $block_in,
 		);
+
+		if ( Policy::would_lock_out( get_current_user_id(), $patch ) ) {
+			wp_safe_redirect( add_query_arg( 'lockout', '1', Network::settings_url() ) );
+			exit;
+		}
+
+		Policy::update( $patch );
+
+		if ( isset( $_POST['sigil_trusted_days'] ) ) {
+			Network::update_option( Trusted_Devices::OPTION_DAYS, max( 1, min( 365, absint( wp_unslash( $_POST['sigil_trusted_days'] ) ) ) ) );
+		}
+		if ( ! empty( $_POST['sigil_revoke_trusted'] ) ) {
+			Trusted_Devices::instance()->revoke_all( get_current_user_id() );
+		}
+		Zero_Setup::set_enabled( ! empty( $_POST['sigil_zero_setup'] ) );
 
 		wp_safe_redirect( add_query_arg( 'updated', '1', Network::settings_url() ) );
 		exit;

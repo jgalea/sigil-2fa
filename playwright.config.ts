@@ -1,12 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-	// The add-on keeps its specs in pro/e2e, which testDir: './e2e' never
-	// collected, so they had never run once. Matched explicitly instead, and the
-	// pro pattern simply finds nothing in a checkout without the add-on.
-	testDir: '.',
-	testMatch: ['e2e/**/*.spec.ts', 'pro/e2e/**/*.spec.ts'],
-	testIgnore: ['**/node_modules/**', '**/vendor/**', '**/dist/**'],
+	testDir: './e2e',
 	// CI runners are slower and share a machine with whatever else the job is
 	// doing, and every failure so far under load has been a wait expiring rather
 	// than anything asserting wrongly.
