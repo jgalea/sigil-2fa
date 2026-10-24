@@ -93,8 +93,13 @@ class Test_Login_Guard extends WP_UnitTestCase {
 		$this->assertSame( array(), WP_Session_Tokens::get_instance( (int) $user->ID )->get_all(), 'the stored session is gone too' );
 	}
 
+	private function with_wordfence_check(): void {
+		add_action( 'wp_ajax_nopriv_wordfence_ls_authenticate', '__return_null' );
+	}
+
 	public function test_a_credential_check_still_gets_its_answer(): void {
 		$user = $this->enrolled_user();
+		$this->with_wordfence_check();
 		$this->as_ajax( 'wordfence_ls_authenticate' );
 
 		$result = wp_authenticate( $user->user_login, 'password' );
@@ -105,12 +110,44 @@ class Test_Login_Guard extends WP_UnitTestCase {
 
 	public function test_a_credential_check_action_still_cannot_issue_a_session(): void {
 		$user = $this->enrolled_user();
+		$this->with_wordfence_check();
 		$this->as_ajax( 'wordfence_ls_authenticate' );
 
 		$this->sign_on( $user );
 
 		$this->assertNotEmpty( $this->sent );
 		$this->assertNotContains( true, $this->sent );
+	}
+
+	// admin-ajax dispatches on the action exactly as sent, so a differently
+	// cased one reaches some other handler and must not borrow the exemption.
+	public function test_a_differently_cased_action_is_not_a_credential_check(): void {
+		$user = $this->enrolled_user();
+		$this->with_wordfence_check();
+		$this->as_ajax( 'Wordfence_LS_Authenticate' );
+
+		$this->assertWPError( wp_authenticate( $user->user_login, 'password' ) );
+	}
+
+	public function test_the_wordfence_check_is_not_trusted_without_wordfence(): void {
+		$user = $this->enrolled_user();
+		$this->as_ajax( 'wordfence_ls_authenticate' );
+
+		$this->assertWPError( wp_authenticate( $user->user_login, 'password' ) );
+	}
+
+	public function test_a_site_can_list_its_own_credential_check(): void {
+		$user = $this->enrolled_user();
+		add_filter(
+			'sigil_credential_check_ajax_actions',
+			static function ( array $actions ): array {
+				$actions[] = 'my_login_precheck';
+				return $actions;
+			}
+		);
+		$this->as_ajax( 'my_login_precheck' );
+
+		$this->assertInstanceOf( WP_User::class, wp_authenticate( $user->user_login, 'password' ) );
 	}
 
 	public function test_someone_without_a_second_factor_still_signs_in_over_ajax(): void {
