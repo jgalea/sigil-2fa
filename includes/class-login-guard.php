@@ -7,15 +7,18 @@ namespace Sigil;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Keeps password-only sign-ins out of admin-ajax and cron.
+ * Makes sure a session is only ever issued after the second factor.
  *
- * The challenge runs on wp_login and needs a page to render, so it stands
- * aside for AJAX and cron. Any admin-ajax handler that calls wp_signon(), as
- * popup and theme login forms do, would then hand out a session on the
- * password alone. Two layers stop that: the password is refused when an AJAX
- * request asks for it, and no auth cookie leaves an AJAX or cron response for
- * someone with a second factor, whoever tries to set one.
+ * WordPress sets the session cookie inside wp_signon(), before wp_login fires
+ * and the challenge runs. Clearing it afterwards only appends expiring headers
+ * behind the live ones, and leaves the stored session in place, so a client
+ * that keeps the first headers is signed in on the password alone. So no
+ * session cookie goes to anyone with a second factor until something in this
+ * request has granted it: a completed challenge, an excused sign-in, or a
+ * session they already held.
  *
+ * AJAX and cron have no page to show the challenge on, so the password is also
+ * refused there outright, which gives a login form something to tell the user.
  * A request that only checks the credentials is a different thing. Wordfence
  * calls wp_authenticate() over admin-ajax before letting wp-login.php submit
  * normally, and refusing it there would mean nobody with a second factor could
@@ -27,7 +30,15 @@ final class Login_Guard {
 	private static ?Login_Guard $instance = null;
 
 	/** @var array<int, true> */
+	private array $granted = array();
+
+	/** @var array<int, true> */
 	private array $new_users = array();
+
+	/**
+	 * Who the request arrived signed in as, before anything in it ran.
+	 */
+	private ?int $session_user = null;
 
 	public static function instance(): Login_Guard {
 		if ( null === self::$instance ) {
@@ -40,6 +51,36 @@ final class Login_Guard {
 		add_filter( 'authenticate', array( $this, 'refuse_password' ), 40 );
 		add_filter( 'send_auth_cookies', array( $this, 'hold_cookies' ), 10, 6 );
 		add_action( 'user_register', array( $this, 'note_new_user' ) );
+		add_filter( 'determine_current_user', array( $this, 'note_session_user' ), PHP_INT_MAX );
+	}
+
+	/**
+	 * Let this request issue a session to the user.
+	 *
+	 * Call it only once the second factor has been verified server-side, or the
+	 * sign-in has been deliberately excused, and before wp_set_auth_cookie().
+	 * Never on the strength of anything the request itself says.
+	 */
+	public static function grant( int $user_id ): void {
+		if ( $user_id > 0 ) {
+			self::instance()->granted[ $user_id ] = true;
+		}
+	}
+
+	/**
+	 * Only the first answer counts. It comes from the cookies the request
+	 * arrived with; anything later can be steered by code calling
+	 * wp_set_current_user(), and after a password change the old cookie no
+	 * longer validates.
+	 *
+	 * @param mixed $user_id
+	 * @return mixed
+	 */
+	public function note_session_user( $user_id ) {
+		if ( null === $this->session_user ) {
+			$this->session_user = is_numeric( $user_id ) ? (int) $user_id : 0;
+		}
+		return $user_id;
 	}
 
 	/**
@@ -77,20 +118,19 @@ final class Login_Guard {
 	}
 
 	/**
-	 * Refuse to send a session cookie from AJAX or cron to anyone with a second
-	 * factor.
+	 * Refuse to send a session cookie to anyone with a second factor unless this
+	 * request has earned it.
 	 *
-	 * This catches the handlers that skip wp_signon() and set the cookie
-	 * themselves, and anything that slips past refuse_password(). The session
-	 * WordPress has just stored for the cookie is destroyed too, so nothing is
-	 * left behind that could be used later. Sigil never issues a session from
-	 * either context, so nothing legitimate is held here.
+	 * The session WordPress has just stored for the cookie is destroyed too, so
+	 * nothing is left behind that could be used later. A user who arrived
+	 * already signed in keeps their session when WordPress re-issues it, as it
+	 * does after they change their own password.
 	 *
 	 * An account created in this same request is let through. WooCommerce signs
-	 * a new customer in from its checkout over AJAX, and when every account
-	 * counts as covered by an emailed code, holding that cookie would leave
-	 * people who have just registered signed out. Registering can only create
-	 * an account, never reach an existing one.
+	 * a new customer in from its checkout, and when every account counts as
+	 * covered by an emailed code, holding that cookie would leave people who
+	 * have just registered signed out. Registering can only create an account,
+	 * never reach an existing one.
 	 *
 	 * @param bool   $send
 	 * @param int    $expire
@@ -103,11 +143,23 @@ final class Login_Guard {
 		unset( $expire, $expiration, $scheme );
 
 		$user_id = (int) $user_id;
-		if ( ! $send || $user_id <= 0 || ! self::is_guarded_request() ) {
+		if ( ! $send || $user_id <= 0 ) {
 			return (bool) $send;
 		}
 
-		if ( isset( $this->new_users[ $user_id ] ) || ! Providers::instance()->has_usable( $user_id ) ) {
+		if ( isset( $this->granted[ $user_id ] ) || isset( $this->new_users[ $user_id ] ) ) {
+			return true;
+		}
+
+		// Settle who the request arrived as now, if nothing has asked yet.
+		if ( null === $this->session_user && ! did_action( 'set_current_user' ) ) {
+			get_current_user_id();
+		}
+		if ( $user_id === $this->session_user ) {
+			return true;
+		}
+
+		if ( ! Providers::instance()->has_usable( $user_id ) ) {
 			return true;
 		}
 
