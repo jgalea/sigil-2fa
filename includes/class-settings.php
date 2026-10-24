@@ -116,6 +116,14 @@ final class Settings {
 
 		Policy::update( $patch );
 
+		if ( isset( $_POST['sigil_trusted_days'] ) ) {
+			Network::update_option( Trusted_Devices::OPTION_DAYS, max( 1, min( 365, absint( wp_unslash( $_POST['sigil_trusted_days'] ) ) ) ) );
+		}
+		if ( ! empty( $_POST['sigil_revoke_trusted'] ) ) {
+			Trusted_Devices::instance()->revoke_all( get_current_user_id() );
+		}
+		Zero_Setup::set_enabled( ! empty( $_POST['sigil_zero_setup'] ) );
+
 		wp_safe_redirect( add_query_arg( 'updated', '1', Network::settings_url() ) );
 		exit;
 	}

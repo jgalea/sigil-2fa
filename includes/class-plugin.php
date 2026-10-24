@@ -70,6 +70,16 @@ final class Plugin {
 		require_once SIGIL_DIR . 'includes/class-two-factor-migration.php';
 		Two_Factor_Migration::instance();
 
+		require_once SIGIL_DIR . 'includes/class-trusted-devices.php';
+		require_once SIGIL_DIR . 'includes/class-zero-setup.php';
+		require_once SIGIL_DIR . 'includes/class-woocommerce.php';
+		Trusted_Devices::instance();
+		Zero_Setup::instance();
+
+		// The account tab can only be added where there is an account page to put
+		// it on, which cannot be known until every plugin has loaded.
+		WooCommerce::boot();
+
 		// Pro add-on, when present. The free build strips pro/ entirely, so this
 		// include only fires in the Pro distribution.
 		if ( SIGIL_PRO ) {

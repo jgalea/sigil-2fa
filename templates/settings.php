@@ -154,6 +154,36 @@ $locked_out = ! empty( $locked_out );
 					<?php endif; ?>
 				</td>
 			</tr>
+
+			<tr>
+				<th scope="row">
+					<label for="sigil-trusted-days"><?php echo esc_html__( 'Remember this device', 'sigil-2fa' ); ?></label>
+				</th>
+				<td>
+					<input type="number" min="1" max="365" step="1" id="sigil-trusted-days" name="sigil_trusted_days" value="<?php echo esc_attr( (string) \Sigil\Trusted_Devices::trust_days() ); ?>" class="small-text" />
+					<?php echo esc_html__( 'days', 'sigil-2fa' ); ?>
+					<p class="description">
+						<?php echo esc_html__( 'How long a device stays trusted after someone ticks the box on the challenge screen. Trust ends when they change their password or their methods.', 'sigil-2fa' ); ?>
+					</p>
+					<label>
+						<input type="checkbox" name="sigil_revoke_trusted" value="1" />
+						<?php echo esc_html__( 'Forget my trusted devices', 'sigil-2fa' ); ?>
+					</label>
+				</td>
+			</tr>
+
+			<tr>
+				<th scope="row"><?php echo esc_html__( 'Accounts with nothing set up', 'sigil-2fa' ); ?></th>
+				<td>
+					<label>
+						<input type="checkbox" name="sigil_zero_setup" value="1" <?php checked( \Sigil\Zero_Setup::is_enabled() ); ?> />
+						<?php echo esc_html__( 'Use email codes for accounts with nothing set up', 'sigil-2fa' ); ?>
+					</label>
+					<p class="description">
+						<?php echo esc_html__( 'Counts an account\'s own email address as a second factor, so a required policy never meets a wall. It is the weakest method and sorts last: anyone with a passkey or an authenticator is still challenged with that.', 'sigil-2fa' ); ?>
+					</p>
+				</td>
+			</tr>
 		</table>
 
 		<?php submit_button( __( 'Save settings', 'sigil-2fa' ) ); ?>
@@ -162,7 +192,7 @@ $locked_out = ! empty( $locked_out );
 	<?php
 	/**
 	 * Fires at the end of the Sigil settings screen. Extension point for
-	 * add-ons (Pro license entry, trusted-device controls).
+	 * add-ons (Pro license entry, branding, method rules).
 	 */
 	do_action( 'sigil_settings_after' );
 	?>

@@ -3,8 +3,7 @@
 declare( strict_types=1 );
 
 /**
- * Zero-setup coverage, the excused sign-in, and the branding that reaches the
- * challenge screen.
+ * The excused sign-in, and the branding that reaches the challenge screen.
  */
 class Test_Pro_Coverage extends WP_UnitTestCase {
 
@@ -15,7 +14,7 @@ class Test_Pro_Coverage extends WP_UnitTestCase {
 			$this->markTestSkipped( 'pro add-on not installed' );
 		}
 
-		foreach ( array( 'class-zero-setup', 'class-always-email', 'class-bypass', 'class-branding', 'class-audit' ) as $file ) {
+		foreach ( array( 'class-bypass', 'class-branding', 'class-audit' ) as $file ) {
 			require_once SIGIL_DIR . 'pro/' . $file . '.php';
 		}
 
@@ -23,7 +22,6 @@ class Test_Pro_Coverage extends WP_UnitTestCase {
 	}
 
 	public function tear_down(): void {
-		delete_option( \Sigil\Pro\Zero_Setup::OPTION );
 		delete_option( \Sigil\Pro\Branding::OPTION );
 		\Sigil\Network::delete_option( \Sigil\Policy::OPTION_KEY );
 		// Deliberately not remove_all_filters(): these are added by singletons that
@@ -31,64 +29,6 @@ class Test_Pro_Coverage extends WP_UnitTestCase {
 		// next. Every one of them no-ops once its option is gone, which is the
 		// cleanup that actually matters.
 		parent::tear_down();
-	}
-
-	private function require_2fa(): void {
-		\Sigil\Policy::update(
-			array(
-				'enabled'    => true,
-				'roles'      => array( 'subscriber' => true, 'administrator' => true ),
-				'grace_days' => 0,
-			)
-		);
-	}
-
-	// The wall a policy meets is users who never set anything up. Their own
-	// address is a factor they do not have to configure.
-	public function test_an_account_that_set_nothing_up_is_still_covered(): void {
-		$user = self::factory()->user->create( array( 'role' => 'subscriber' ) );
-		$this->require_2fa();
-
-		$this->assertFalse( \Sigil\Providers::instance()->has_usable( $user ), 'nothing is set up' );
-
-		\Sigil\Pro\Zero_Setup::set_enabled( true );
-		\Sigil\Pro\Zero_Setup::instance()->register();
-
-		$this->assertTrue( \Sigil\Providers::instance()->has_usable( $user ) );
-		$this->assertFalse( \Sigil\Policy::must_enrol_now( $user ), 'and is therefore not pushed at a wall' );
-	}
-
-	// It is a floor, not a preference. Anyone who enrols something stronger is
-	// challenged with that instead.
-	public function test_a_stronger_method_still_wins(): void {
-		$user = self::factory()->user->create();
-		\Sigil\Store::set_method( $user, 'totp', array( 'secret' => 'x' ) );
-
-		\Sigil\Pro\Zero_Setup::set_enabled( true );
-		\Sigil\Pro\Zero_Setup::instance()->register();
-
-		$preferred = \Sigil\Providers::instance()->preferred_for( $user );
-		$this->assertInstanceOf( \Sigil\Provider::class, $preferred );
-		$this->assertSame( 'totp', $preferred->id() );
-	}
-
-	// An address that cannot receive mail is not a factor, and pretending
-	// otherwise locks the account into a login it can never finish.
-	public function test_an_account_with_no_address_is_not_covered(): void {
-		$user = self::factory()->user->create();
-		wp_update_user( array( 'ID' => $user, 'user_email' => '' ) );
-
-		\Sigil\Pro\Zero_Setup::set_enabled( true );
-		\Sigil\Pro\Zero_Setup::instance()->register();
-
-		$this->assertFalse( \Sigil\Providers::instance()->has_usable( $user ) );
-	}
-
-	public function test_zero_setup_does_nothing_while_it_is_off(): void {
-		$user = self::factory()->user->create();
-		\Sigil\Pro\Zero_Setup::instance()->register();
-
-		$this->assertFalse( \Sigil\Providers::instance()->has_usable( $user ) );
 	}
 
 	private function manager(): int {
