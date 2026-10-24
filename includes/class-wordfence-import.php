@@ -52,8 +52,10 @@ final class Wordfence_Import {
 			}
 
 			// Wordfence's own table under the network prefix; nothing user-supplied.
+			// Joined to the users table because rows can outlive an account that
+			// was deleted while Wordfence was inactive.
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
-			foreach ( (array) $wpdb->get_col( "SELECT DISTINCT user_id FROM {$table}" . ( $limit > 0 ? ' LIMIT ' . (int) $limit : '' ) ) as $id ) {
+			foreach ( (array) $wpdb->get_col( "SELECT DISTINCT w.user_id FROM {$table} AS w INNER JOIN {$wpdb->users} AS u ON u.ID = w.user_id" . ( $limit > 0 ? ' LIMIT ' . (int) $limit : '' ) ) as $id ) {
 				$ids[ (int) $id ] = true;
 			}
 		}
@@ -89,6 +91,19 @@ final class Wordfence_Import {
 
 		$secret  = self::secret_row( $user_id );
 		$records = self::passkey_records( $user_id );
+
+		// An enrolment Wordfence is not asking for, because its two-factor or
+		// passkeys are switched off site-wide, was not protecting anyone, so it
+		// does not become a second factor here either.
+		if ( null !== $secret && ! self::setting_on( 'enable-2fa' ) ) {
+			$result['flags'][] = 'wordfence_2fa_off';
+			$secret            = null;
+		}
+		if ( array() !== $records && ! self::setting_on( 'enable-passkeys' ) ) {
+			$result['flags'][] = 'wordfence_passkeys_off';
+			$records           = array();
+		}
+
 		if ( null === $secret && array() === $records ) {
 			$result['status'] = 'not_using';
 			return $result;
@@ -264,23 +279,45 @@ final class Wordfence_Import {
 	}
 
 	/**
+	 * A Wordfence on/off setting. A missing row means a site upgraded from
+	 * before the setting existed, where Wordfence treats it as on.
+	 */
+	private static function setting_on( string $name ): bool {
+		$value = self::setting( $name );
+		if ( null === $value ) {
+			return true;
+		}
+		if ( is_numeric( $value ) ) {
+			return 0.0 !== (float) $value;
+		}
+
+		return '' !== $value && ! preg_match( '/^(?:f(?:alse)?|no?|off)$/i', $value );
+	}
+
+	private static function setting( string $name ): ?string {
+		global $wpdb;
+
+		$table = $wpdb->base_prefix . self::SETTINGS;
+		if ( ! Import::table_exists( $table ) ) {
+			return null;
+		}
+
+		// Wordfence's own table under the network prefix; the name is prepared.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+		$value = $wpdb->get_var( $wpdb->prepare( "SELECT value FROM {$table} WHERE name = %s", $name ) );
+
+		return is_string( $value ) ? $value : null;
+	}
+
+	/**
 	 * The relying party Wordfence registered its passkeys under: the override
 	 * an administrator set, or the one it recorded at the last registration.
 	 * Wordfence keeps neither per credential.
 	 */
 	private static function passkey_rp_id(): string {
-		global $wpdb;
-
-		$table = $wpdb->base_prefix . self::SETTINGS;
-		if ( ! Import::table_exists( $table ) ) {
-			return '';
-		}
-
 		foreach ( array( 'passkey-relying-party-override', 'last-passkey-rp' ) as $name ) {
-			// Wordfence's own table under the network prefix; the name is prepared.
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
-			$value = $wpdb->get_var( $wpdb->prepare( "SELECT value FROM {$table} WHERE name = %s", $name ) );
-			if ( is_string( $value ) && '' !== $value ) {
+			$value = self::setting( $name );
+			if ( null !== $value && '' !== $value ) {
 				return strtolower( $value );
 			}
 		}
@@ -357,6 +394,13 @@ final class Wordfence_Import {
 	}
 
 	public static function flag_label( string $flag ): string {
+		switch ( $flag ) {
+			case 'wordfence_2fa_off':
+				return __( 'Wordfence two-factor is switched off for the site, so the authenticator it holds was not protecting the account and was not imported', 'sigil-2fa' );
+			case 'wordfence_passkeys_off':
+				return __( 'Wordfence passkeys are switched off for the site, so they were not imported', 'sigil-2fa' );
+		}
+
 		return Import::flag_label( $flag );
 	}
 }

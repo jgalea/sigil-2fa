@@ -189,6 +189,30 @@ class Test_Wordfence_Import extends WP_UnitTestCase {
 		$this->assertSame( array(), Store::methods( $uid ) );
 	}
 
+	public function test_enrolment_wordfence_is_not_asking_for_is_skipped(): void {
+		global $wpdb;
+
+		$uid = $this->wf_totp_user( array( '0123 4567 89ab cdef' ) );
+		$wpdb->replace( $wpdb->base_prefix . 'wfls_settings', array( 'name' => 'enable-2fa', 'value' => '0', 'autoload' => 'yes' ) );
+
+		$result = Wordfence_Import::import_user( $uid, false );
+		$this->assertSame( 'not_using', $result['status'] );
+		$this->assertContains( 'wordfence_2fa_off', $result['flags'] );
+		$this->assertSame( array(), Store::methods( $uid ) );
+
+		$wpdb->replace( $wpdb->base_prefix . 'wfls_settings', array( 'name' => 'enable-2fa', 'value' => '1', 'autoload' => 'yes' ) );
+		$this->assertSame( array( 'totp', 'backup' ), Wordfence_Import::import_user( $uid, true )['imported'] );
+	}
+
+	public function test_rows_of_deleted_accounts_are_not_candidates(): void {
+		$uid = $this->wf_totp_user( array() );
+		$this->assertContains( $uid, Wordfence_Import::candidates() );
+
+		global $wpdb;
+		$wpdb->delete( $wpdb->users, array( 'ID' => $uid ) );
+		$this->assertNotContains( $uid, Wordfence_Import::candidates() );
+	}
+
 	public function test_only_fully_covered_users_count_as_covered(): void {
 		$covered = $this->wf_totp_user( array( '0123 4567 89ab cdef' ) );
 		Wordfence_Import::import_user( $covered, false );
