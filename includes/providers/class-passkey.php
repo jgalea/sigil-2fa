@@ -384,9 +384,11 @@ final class Passkey implements Provider {
 			return 0;
 		}
 
-		$handle = $this->decode_binary_field( $fields['userHandle'] );
-		$stored_handle = '' !== (string) $cred->user_handle ? (string) $cred->user_handle : (string) $user_id;
-		if ( '' !== $handle && ! hash_equals( $stored_handle, $handle ) ) {
+		// Only a handle we recorded can veto. Older and imported passkeys carry
+		// whatever handle they were registered with, which was never stored.
+		$handle        = $this->decode_binary_field( $fields['userHandle'] );
+		$stored_handle = (string) $cred->user_handle;
+		if ( '' !== $handle && '' !== $stored_handle && ! hash_equals( $stored_handle, $handle ) ) {
 			return 0;
 		}
 

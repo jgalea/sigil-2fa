@@ -69,25 +69,7 @@ final class Schema {
 
 		dbDelta( $sql );
 		self::migrate_to_network();
-		self::backfill_user_handles();
 		Network::update_option( 'sigil_db_version', SIGIL_VERSION );
-	}
-
-	/**
-	 * Every passkey registered before the column existed was created with the
-	 * user ID as its user handle, so that is what the authenticator hands back.
-	 *
-	 * phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery
-	 * phpcs:disable WordPress.DB.DirectDatabaseQuery.NoCaching
-	 * phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-	 * phpcs:disable PluginCheck.Security.DirectDB.UnescapedDBParameter
-	 */
-	private static function backfill_user_handles(): void {
-		global $wpdb;
-
-		$table = self::table();
-
-		$wpdb->query( "UPDATE {$table} SET user_handle = CAST(user_id AS CHAR) WHERE user_handle = ''" );
 	}
 
 	/**

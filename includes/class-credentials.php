@@ -9,6 +9,8 @@ defined( 'ABSPATH' ) || exit;
 final class Credentials {
 
 	/**
+	 * @param string    $user_handle  The handle the authenticator was given, empty when it is not known
+	 *                                (passkeys registered before it was stored, or brought in by an importer).
 	 * @param bool|null $discoverable Whether the browser reported a resident key, null when it did not say.
 	 * @return int Inserted row ID, or 0 on failure.
 	 */
@@ -35,7 +37,7 @@ final class Credentials {
 			'sign_count'    => max( 0, $sign_count ),
 			'transports'    => sanitize_text_field( $transports ),
 			'label'         => sanitize_text_field( $label ),
-			'user_handle'   => '' !== $user_handle ? $user_handle : (string) $user_id,
+			'user_handle'   => $user_handle,
 			'created_at'    => current_time( 'mysql', true ),
 		];
 		$formats = [ '%d', '%s', '%s', '%d', '%s', '%s', '%s', '%s' ];
