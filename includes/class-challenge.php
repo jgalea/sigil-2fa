@@ -163,6 +163,10 @@ final class Challenge {
 		Rate_Limit::clear( $user_key );
 		Rate_Limit::clear( $ip_key );
 
+		// The factor is verified and the token spent, so this request may now
+		// issue the session the password step was refused.
+		Login_Guard::grant( $user_id );
+
 		return true;
 	}
 
@@ -220,6 +224,8 @@ final class Challenge {
 		}
 
 		// Application passwords and non-interactive flows must not be trapped here.
+		// There is no page to render the challenge on, so App_Passwords and
+		// Login_Guard keep a password alone from signing anyone in through them.
 		if ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) {
 			return;
 		}
@@ -234,6 +240,10 @@ final class Challenge {
 		// second factor is only ever skipped by code that deliberately opts in
 		// (the Pro trusted-devices feature, which requires a valid signed token).
 		if ( true === apply_filters( 'sigil_skip_challenge', false, $user ) ) {
+			// wp_signon() already tried to set the cookie and Login_Guard held
+			// it, so issue it again now the sign-in is excused.
+			Login_Guard::grant( (int) $user->ID );
+			wp_set_auth_cookie( $user->ID, ! empty( $_POST['rememberme'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- wp_login runs after WordPress validated the login POST.
 			return;
 		}
 
