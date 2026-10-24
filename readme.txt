@@ -4,7 +4,7 @@ Tags: two-factor, 2fa, passkeys, authentication, security
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.4.0
+Stable tag: 0.4.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -105,6 +105,11 @@ Yes. With both plugins active, open Settings → Sigil and use Import from Two F
 Yes. Settings → Sigil lets you pick exactly which roles are required, and set a grace period so people are prompted to enrol rather than locked out immediately.
 
 == Changelog ==
+
+= 0.4.1 =
+* Security: a password alone no longer creates a session before the second step. Please update.
+* Security: AJAX login forms no longer accept a password alone from users with a second factor.
+* Sign-ins that skip the password (user switching, SSO, magic links) now require the second step. Integrations can call `Sigil\Login_Guard::grant()`.
 
 = 0.4.0 =
 * Moving from the Two Factor plugin no longer means everyone enrols again. Settings → Sigil and `wp sigil import two-factor` carry each user's email codes, authenticator app and backup codes across, so the same authenticator keeps working. Anyone with a method that cannot be carried over is named in the report and stays with Two Factor until they set one up in Sigil. Nobody is moved to email codes they did not already use, and Two Factor's own data is left as it was.
