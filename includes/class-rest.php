@@ -261,7 +261,7 @@ final class REST {
 	}
 
 	/**
-	 * @return \WP_REST_Response
+	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function update_policy( \WP_REST_Request $request ) {
 		$body  = $request->get_json_params();
@@ -288,6 +288,10 @@ final class REST {
 				}
 				$patch[ $map ] = $clean;
 			}
+		}
+
+		if ( Policy::would_lock_out( get_current_user_id(), $patch ) ) {
+			return new \WP_Error( 'sigil_lockout', Policy::lockout_message(), array( 'status' => 409 ) );
 		}
 
 		Policy::update( $patch );

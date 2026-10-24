@@ -1,10 +1,11 @@
 <?php
 /**
- * Settings page template. Variables: $policy, $roles, $updated.
+ * Settings page template. Variables: $policy, $roles, $updated, $locked_out.
  *
  * @var array  $policy
  * @var array  $roles
  * @var bool   $updated
+ * @var bool   $locked_out
  */
 
 declare( strict_types=1 );
@@ -22,13 +23,21 @@ if ( ! isset( $policy ) || ! is_array( $policy ) ) {
 if ( ! isset( $roles ) || ! is_array( $roles ) ) {
 	$roles = array();
 }
-$updated = ! empty( $updated );
+$updated    = ! empty( $updated );
+$locked_out = ! empty( $locked_out );
 ?>
 <div class="wrap">
 	<h1><?php echo esc_html__( 'Sigil', 'sigil-2fa' ); ?></h1>
 
 	<?php if ( $updated ) : ?>
 		<div class="notice notice-success is-dismissible"><p><?php echo esc_html__( 'Settings saved.', 'sigil-2fa' ); ?></p></div>
+	<?php endif; ?>
+
+	<?php if ( $locked_out ) : ?>
+		<div class="notice notice-error"><p>
+			<?php echo esc_html( \Sigil\Policy::lockout_message() ); ?>
+			<a href="<?php echo esc_url( admin_url( 'users.php?page=' . \Sigil\Enrolment::PAGE_SLUG ) ); ?>"><?php echo esc_html__( 'Set up two-factor authentication', 'sigil-2fa' ); ?></a>
+		</p></div>
 	<?php endif; ?>
 
 	<?php if ( \Sigil\Network::is_network() ) : ?>
