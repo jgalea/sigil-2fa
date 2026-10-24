@@ -1,7 +1,10 @@
 <?php
 /**
- * Import from Two Factor, shown at the foot of the settings screen.
+ * One import section per source plugin, shown at the foot of the settings screen.
  *
+ * @var string                    $slug
+ * @var string                    $label
+ * @var class-string              $importer
  * @var array<string, mixed>|null $report
  */
 
@@ -24,13 +27,29 @@ if ( null !== $report && is_array( $report['users'] ?? null ) ) {
 		}
 	}
 }
+
+$what = array(
+	'two-factor' => __( 'Copies each user\'s email codes, authenticator app, backup codes and WebAuthn passkeys from the Two Factor plugin into Sigil.', 'sigil-2fa' ),
+);
 ?>
-<h2 id="sigil-import-two-factor"><?php echo esc_html__( 'Import from Two Factor', 'sigil-2fa' ); ?></h2>
+<h2 id="<?php echo esc_attr( 'sigil-import-' . $slug ); ?>">
+	<?php
+	/* translators: %s: name of the other two-factor plugin */
+	echo esc_html( sprintf( __( 'Import from %s', 'sigil-2fa' ), $label ) );
+	?>
+</h2>
 <p style="max-width:720px;">
-	<?php echo esc_html__( 'Copies each user\'s email codes, authenticator app and backup codes from the Two Factor plugin into Sigil. Two Factor\'s own data is left untouched. Users with a method that cannot be carried over are listed below, and Two Factor keeps protecting them while it is active. Running it again skips anything already in Sigil.', 'sigil-2fa' ); ?>
+	<?php
+	echo esc_html( $what[ $slug ] ?? '' ) . ' ';
+	/* translators: %s: name of the other two-factor plugin */
+	echo esc_html( sprintf( __( '%s\'s own data is left untouched. Users with a method that cannot be carried over are listed below, and it keeps protecting them while it is active. Running it again skips anything already in Sigil.', 'sigil-2fa' ), $label ) );
+	?>
 </p>
 <p style="max-width:720px;">
-	<?php echo esc_html__( 'Once the import looks right, deactivate Two Factor. Until then Sigil asks the users it covers and Two Factor asks everyone else, so nobody is asked twice.', 'sigil-2fa' ); ?>
+	<?php
+	/* translators: %s: name of the other two-factor plugin */
+	echo esc_html( sprintf( __( 'Once the import looks right, deactivate %s. Until then Sigil asks the users it covers and it asks everyone else, so nobody is asked twice.', 'sigil-2fa' ), $label ) );
+	?>
 </p>
 
 <?php if ( null !== $report ) : ?>
@@ -42,19 +61,21 @@ if ( null !== $report && is_array( $report['users'] ?? null ) ) {
 			<?php
 			$lines = array(
 				/* translators: %d: number of users */
-				'users'          => __( 'Users with Two Factor data: %d', 'sigil-2fa' ),
+				'users'     => __( 'Users with data to look at: %d', 'sigil-2fa' ),
 				/* translators: %d: number of users */
-				'not_using'      => __( 'Not using Two Factor (skipped): %d', 'sigil-2fa' ),
+				'not_using' => __( 'Not using it (skipped): %d', 'sigil-2fa' ),
 				/* translators: %d: number of users */
-				'email'          => __( 'Email codes set up: %d', 'sigil-2fa' ),
+				'email'     => __( 'Email codes set up: %d', 'sigil-2fa' ),
 				/* translators: %d: number of users */
-				'totp'           => __( 'Authenticator apps imported: %d', 'sigil-2fa' ),
+				'totp'      => __( 'Authenticator apps imported: %d', 'sigil-2fa' ),
 				/* translators: %d: number of users */
-				'backup'         => __( 'Backup code sets imported: %d', 'sigil-2fa' ),
+				'passkey'   => __( 'Users with passkeys imported: %d', 'sigil-2fa' ),
 				/* translators: %d: number of users */
-				'already'        => __( 'Users with a method already in Sigil: %d', 'sigil-2fa' ),
+				'backup'    => __( 'Backup code sets imported: %d', 'sigil-2fa' ),
 				/* translators: %d: number of users */
-				'attention'      => __( 'Need attention, still protected by Two Factor: %d', 'sigil-2fa' ),
+				'already'   => __( 'Users with a method already in Sigil: %d', 'sigil-2fa' ),
+				/* translators: %d: number of users */
+				'attention' => __( 'Need attention, still protected by the other plugin: %d', 'sigil-2fa' ),
 			);
 			foreach ( $lines as $key => $format ) :
 				?>
@@ -81,10 +102,11 @@ if ( null !== $report && is_array( $report['users'] ?? null ) ) {
 							<?php
 							$notes = array();
 							if ( ! empty( $row['needs_attention'] ) ) {
-								$notes[] = __( 'Ask this user to set up a method in Sigil before Two Factor is deactivated', 'sigil-2fa' );
+								/* translators: %s: name of the other two-factor plugin */
+								$notes[] = sprintf( __( 'Ask this user to set up a method in Sigil before %s is deactivated', 'sigil-2fa' ), $label );
 							}
 							foreach ( (array) ( $row['flags'] ?? array() ) as $flag ) {
-								$notes[] = \Sigil\Two_Factor_Import::flag_label( (string) $flag );
+								$notes[] = $importer::flag_label( (string) $flag );
 							}
 							echo esc_html( implode( '; ', $notes ) );
 							?>
@@ -97,8 +119,9 @@ if ( null !== $report && is_array( $report['users'] ?? null ) ) {
 <?php endif; ?>
 
 <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:12px;">
-	<input type="hidden" name="action" value="<?php echo esc_attr( \Sigil\Two_Factor_Migration::action() ); ?>" />
-	<?php wp_nonce_field( \Sigil\Two_Factor_Migration::action() ); ?>
-	<?php submit_button( __( 'Preview import', 'sigil-2fa' ), 'secondary', 'sigil_import_preview', false ); ?>
-	<?php submit_button( __( 'Import now', 'sigil-2fa' ), 'primary', 'sigil_import_run', false ); ?>
+	<input type="hidden" name="action" value="<?php echo esc_attr( \Sigil\Import_Migration::action() ); ?>" />
+	<input type="hidden" name="sigil_import_source" value="<?php echo esc_attr( $slug ); ?>" />
+	<?php wp_nonce_field( \Sigil\Import_Migration::nonce_action( $slug ) ); ?>
+	<?php submit_button( __( 'Preview import', 'sigil-2fa' ), 'secondary', 'sigil_import_preview', false, array( 'id' => 'sigil-import-preview-' . $slug ) ); ?>
+	<?php submit_button( __( 'Import now', 'sigil-2fa' ), 'primary', 'sigil_import_run', false, array( 'id' => 'sigil-import-run-' . $slug ) ); ?>
 </form>

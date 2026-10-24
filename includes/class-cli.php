@@ -175,9 +175,12 @@ final class CLI {
 	 * @param array<string, string|bool> $assoc_args
 	 */
 	public function import( array $args, array $assoc_args = [] ): void {
-		if ( 'two-factor' !== ( $args[0] ?? '' ) ) {
-			\WP_CLI::error( 'Unknown source. Supported: two-factor' );
+		$sources = Import::sources();
+		$slug    = $args[0] ?? '';
+		if ( ! isset( $sources[ $slug ] ) ) {
+			\WP_CLI::error( 'Unknown source. Supported: ' . implode( ', ', array_keys( $sources ) ) );
 		}
+		$label = $sources[ $slug ]['label'];
 
 		$dry_run = ! empty( $assoc_args['dry-run'] );
 		$ids     = null;
@@ -190,7 +193,7 @@ final class CLI {
 			$ids = [ (int) $user->ID ];
 		}
 
-		$report = Two_Factor_Import::run( $ids, $dry_run );
+		$report = Import::run( $sources[ $slug ]['class'], $ids, $dry_run );
 
 		$items = [];
 		foreach ( $report['users'] as $row ) {
@@ -212,25 +215,27 @@ final class CLI {
 		$c = $report['counts'];
 		\WP_CLI::log(
 			sprintf(
-				'%sUsers: %d, not using Two Factor: %d, email: %d, authenticator: %d, backup codes: %d, already in Sigil: %d, flagged: %d, needs attention: %d',
+				'%sUsers: %d, not using %s: %d, email: %d, authenticator: %d, backup codes: %d, already in Sigil: %d, flagged: %d, needs attention: %d, passkeys: %d',
 				$dry_run ? '[dry run] ' : '',
 				$c['users'],
+				$label,
 				$c['not_using'],
 				$c['email'],
 				$c['totp'],
 				$c['backup'],
 				$c['already'],
 				$c['flagged'],
-				$c['attention']
+				$c['attention'],
+				$c['passkey']
 			)
 		);
 
 		if ( $c['attention'] > 0 ) {
-			\WP_CLI::warning( 'Some users had a method Sigil could not carry over. Two Factor keeps protecting them while it is active, so leave it active until they have set up a method in Sigil.' );
+			\WP_CLI::warning( sprintf( 'Some users had a method Sigil could not carry over. %1$s keeps protecting them while it is active, so leave it active until they have set up a method in Sigil.', $label ) );
 			return;
 		}
 
-		\WP_CLI::success( $dry_run ? 'Dry run complete. Nothing was written.' : 'Import complete. Two Factor data was left in place; deactivate Two Factor once you have checked the result.' );
+		\WP_CLI::success( $dry_run ? 'Dry run complete. Nothing was written.' : sprintf( 'Import complete. %1$s data was left in place; deactivate %1$s once you have checked the result.', $label ) );
 	}
 
 	/**
