@@ -54,6 +54,7 @@ final class Login_Guard {
 		add_filter( 'send_auth_cookies', array( $this, 'hold_cookies' ), 10, 6 );
 		add_action( 'user_register', array( $this, 'note_new_user' ) );
 		add_filter( 'determine_current_user', array( $this, 'note_session_user' ), PHP_INT_MAX );
+		add_action( 'wp_authenticate', array( $this, 'note_password_attempt' ) );
 	}
 
 	/**
@@ -87,6 +88,15 @@ final class Login_Guard {
 		return $user_id;
 	}
 
+	/**
+	 * wp_signon() announces the password check here before any authenticate
+	 * filter runs, and refuse_password() notes it again for direct
+	 * wp_authenticate() calls.
+	 */
+	public function note_password_attempt(): void {
+		$this->password_attempted = true;
+	}
+
 	private function arrived_as(): int {
 		if ( null === $this->session_user ) {
 			$this->session_user = (int) wp_validate_auth_cookie( '', is_ssl() ? 'secure_auth' : 'auth' );
@@ -106,7 +116,7 @@ final class Login_Guard {
 	 * @return mixed
 	 */
 	public function refuse_password( $user ) {
-		$this->password_attempted = true;
+		$this->note_password_attempt();
 
 		if ( ! $user instanceof \WP_User || ! self::is_guarded_request() || self::is_credential_check() ) {
 			return $user;
