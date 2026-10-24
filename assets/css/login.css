@@ -114,3 +114,28 @@
 	margin: 16px 0 0;
 	font-size: 13px;
 }
+
+#login .sigil-passwordless {
+	clear: both;
+	padding-top: 16px;
+}
+
+#login .sigil-passwordless__or {
+	margin: 0 0 12px;
+	color: #50575e;
+	text-align: center;
+}
+
+#login .sigil-passwordless__button {
+	display: block;
+	width: 100%;
+}
+
+#login .sigil-passwordless__status:empty {
+	display: none;
+}
+
+#login .sigil-passwordless__status {
+	margin: 12px 0 0;
+	color: #50575e;
+}

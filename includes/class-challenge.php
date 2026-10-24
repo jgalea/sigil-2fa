@@ -356,7 +356,7 @@ final class Challenge {
 	 * everybody at once. No address means no second bucket; the per-account
 	 * count still applies.
 	 */
-	private static function ip_rate_key(): string {
+	public static function ip_rate_key(): string {
 		$ip = Request::client_ip();
 
 		return '' === $ip ? '' : 'ip:' . hash( 'sha256', $ip );

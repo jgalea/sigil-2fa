@@ -91,6 +91,39 @@ final class Passkey implements Provider {
 		echo '<input type="text" id="sigil-passkey-label" name="sigil_passkey_label" class="regular-text" value="" maxlength="190" /></p>';
 		echo '<p><button type="button" class="button button-primary sigil-passkey-register">' . esc_html__( 'Register passkey', 'sigil-2fa' ) . '</button></p>';
 		echo '<p class="sigil-passkey-status" role="status" aria-live="polite"></p>';
+		$this->render_upgrades( $user_id );
+		echo '</div>';
+	}
+
+	/**
+	 * Passkeys registered without a resident key cannot start a sign-in on
+	 * their own. Older registrations never asked the browser, so those are
+	 * listed too until one signs in by itself and proves otherwise.
+	 */
+	private function render_upgrades( int $user_id ): void {
+		if ( ! \Sigil\Passwordless::enabled() ) {
+			return;
+		}
+
+		$rows = array_filter(
+			Credentials::for_user( $user_id ),
+			static function ( $row ): bool {
+				return 1 !== (int) $row->discoverable;
+			}
+		);
+		if ( [] === $rows ) {
+			return;
+		}
+
+		echo '<div class="sigil-passkey-upgrade">';
+		echo '<p>' . esc_html__( 'These passkeys may only work after your password. Register one again on the same device to sign in with the passkey alone.', 'sigil-2fa' ) . '</p>';
+		echo '<ul>';
+		foreach ( $rows as $row ) {
+			echo '<li>' . esc_html( (string) $row->label ) . ' ';
+			echo '<button type="button" class="button sigil-passkey-register" data-replace="' . esc_attr( (string) (int) $row->id ) . '">' . esc_html__( 'Register again', 'sigil-2fa' ) . '</button>';
+			echo '</li>';
+		}
+		echo '</ul>';
 		echo '</div>';
 	}
 
@@ -112,6 +145,18 @@ final class Passkey implements Provider {
 		$label             = isset( $input['label'] ) ? sanitize_text_field( (string) $input['label'] ) : '';
 		$transports_raw    = $input['transports'] ?? '';
 		$transports        = $this->sanitize_transports( $transports_raw );
+		$replace           = isset( $input['replace'] ) ? (int) $input['replace'] : 0;
+
+		// What the browser said through the credProps extension. Only ever a hint
+		// for the enrolment screen; sign-in trusts the signature, not this.
+		$discoverable = null;
+		if ( isset( $input['discoverable'] ) && in_array( $input['discoverable'], [ '0', '1' ], true ) ) {
+			$discoverable = '1' === $input['discoverable'];
+		}
+		if ( $replace > 0 ) {
+			// Re-registration demands a resident key, so the authenticator either made one or refused.
+			$discoverable = true;
+		}
 
 		if ( '' === $client_data_json || '' === $attestation_object ) {
 			return new \WP_Error( 'sigil_passkey_invalid', __( 'Invalid passkey registration data.', 'sigil-2fa' ) );
@@ -163,9 +208,13 @@ final class Passkey implements Provider {
 			$label = __( 'Passkey', 'sigil-2fa' );
 		}
 
-		$id = Credentials::add( $user_id, $credential_id, $public_key, $sign_count, $label, $transports );
+		$id = Credentials::add( $user_id, $credential_id, $public_key, $sign_count, $label, $transports, (string) $user_id, $discoverable );
 		if ( $id <= 0 ) {
 			return new \WP_Error( 'sigil_passkey_store', __( 'Could not store the passkey.', 'sigil-2fa' ) );
+		}
+
+		if ( $replace > 0 ) {
+			Credentials::delete( $replace, $user_id );
 		}
 
 		Store::set_method(
@@ -243,16 +292,7 @@ final class Passkey implements Provider {
 
 		$assertion = $this->assertion_fields( $input );
 
-		$client_data_json   = $this->decode_binary_field( $assertion['clientDataJSON'] );
-		$authenticator_data = $this->decode_binary_field( $assertion['authenticatorData'] );
-		$signature          = $this->decode_binary_field( $assertion['signature'] );
-		$raw_id             = $this->decode_binary_field( $assertion['id'] );
-
-		if ( '' === $client_data_json || '' === $authenticator_data || '' === $signature || '' === $raw_id ) {
-			return false;
-		}
-
-		$cred = Credentials::by_credential_id( $raw_id );
+		$cred = Credentials::by_credential_id( $this->decode_binary_field( $assertion['id'] ) );
 		if ( null === $cred || (int) $cred->user_id !== $user_id ) {
 			return false;
 		}
@@ -262,6 +302,122 @@ final class Passkey implements Provider {
 			return false;
 		}
 
+		$verified = $this->verify_assertion( $cred, $assertion, $challenges, false );
+		$this->clear_challenge( $user_id, 'auth' );
+
+		return $verified;
+	}
+
+	/**
+	 * Options for a sign-in that starts with no account at all. There is no
+	 * allow list, so the browser offers whichever passkeys it holds for this
+	 * site, and user verification is required: the passkey is the whole
+	 * sign-in here, so it has to bring the second factor (the PIN or biometric
+	 * that unlocks it) as well as the first.
+	 *
+	 * @return array{ceremony: string, options: \stdClass}|null
+	 */
+	public function discoverable_options(): ?array {
+		if ( ! $this->is_available() ) {
+			return null;
+		}
+
+		try {
+			$webauthn  = $this->webauthn();
+			$args      = $webauthn->getGetArgs( [], self::CHALLENGE_TTL, true, true, true, true, true, 'required' );
+			$challenge = $webauthn->getChallenge()->getBinaryString();
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+
+		// Nobody is signed in yet, so the challenge is bound to an opaque
+		// ceremony id instead of a user, and only its holder can spend it.
+		$ceremony = bin2hex( random_bytes( 32 ) );
+		set_transient( self::ceremony_key( $ceremony ), base64_encode( $challenge ), self::CHALLENGE_TTL );
+
+		return [
+			'ceremony' => $ceremony,
+			'options'  => $args,
+		];
+	}
+
+	/**
+	 * Whose passkey signed a passwordless assertion.
+	 *
+	 * The account is whichever user owns the stored credential the signature
+	 * verifies against. Nothing the client says about who it is decides that;
+	 * a user handle it sends can only veto.
+	 *
+	 * @param array<string, mixed> $assertion id, clientDataJSON, authenticatorData, signature, userHandle.
+	 * @return int User ID, or 0 when the assertion does not verify.
+	 */
+	public function discoverable_owner( string $ceremony, array $assertion ): int {
+		if ( ! $this->is_available() || ! preg_match( '/^[a-f0-9]{64}$/', $ceremony ) ) {
+			return 0;
+		}
+
+		// Claimed by whichever request manages the delete, so one challenge buys
+		// one assertion even when the same one is posted twice at once.
+		$key    = self::ceremony_key( $ceremony );
+		$stored = get_transient( $key );
+		if ( ! is_string( $stored ) || ! delete_transient( $key ) ) {
+			return 0;
+		}
+
+		$challenge = base64_decode( $stored, true );
+		if ( ! is_string( $challenge ) || '' === $challenge ) {
+			return 0;
+		}
+
+		$fields = [];
+		foreach ( [ 'id', 'clientDataJSON', 'authenticatorData', 'signature', 'userHandle' ] as $field ) {
+			$fields[ $field ] = isset( $assertion[ $field ] ) && is_string( $assertion[ $field ] ) ? $assertion[ $field ] : '';
+		}
+
+		$cred = Credentials::by_credential_id( $this->decode_binary_field( $fields['id'] ) );
+		if ( null === $cred ) {
+			return 0;
+		}
+
+		$user_id = (int) $cred->user_id;
+		if ( ! $this->is_enrolled( $user_id ) ) {
+			return 0;
+		}
+
+		$handle = $this->decode_binary_field( $fields['userHandle'] );
+		$stored_handle = '' !== (string) $cred->user_handle ? (string) $cred->user_handle : (string) $user_id;
+		if ( '' !== $handle && ! hash_equals( $stored_handle, $handle ) ) {
+			return 0;
+		}
+
+		if ( ! $this->verify_assertion( $cred, $fields, [ $challenge ], true ) ) {
+			return 0;
+		}
+
+		if ( 1 !== (int) $cred->discoverable ) {
+			Credentials::mark_discoverable( (int) $cred->id );
+		}
+
+		return $user_id;
+	}
+
+	/**
+	 * Check an assertion against one stored credential, and move its signature
+	 * counter on when it verifies.
+	 *
+	 * @param array<string, string> $assertion
+	 * @param list<string>          $challenges Raw binary, any of which may be the one signed.
+	 */
+	private function verify_assertion( object $cred, array $assertion, array $challenges, bool $require_uv ): bool {
+		$client_data_json   = $this->decode_binary_field( $assertion['clientDataJSON'] );
+		$authenticator_data = $this->decode_binary_field( $assertion['authenticatorData'] );
+		$signature          = $this->decode_binary_field( $assertion['signature'] );
+
+		if ( '' === $client_data_json || '' === $authenticator_data || '' === $signature ) {
+			return false;
+		}
+
+		$user_id    = (int) $cred->user_id;
 		$prev_count = (int) $cred->sign_count;
 		$verified   = null;
 
@@ -278,7 +434,7 @@ final class Passkey implements Provider {
 					(string) $cred->public_key,
 					$challenge,
 					$prev_count,
-					false,
+					$require_uv,
 					true
 				);
 				$verified = $webauthn;
@@ -299,7 +455,6 @@ final class Passkey implements Provider {
 		}
 
 		if ( null === $verified ) {
-			$this->clear_challenge( $user_id, 'auth' );
 			return false;
 		}
 
@@ -320,12 +475,10 @@ final class Passkey implements Provider {
 					$new_count
 				)
 			);
-			$this->clear_challenge( $user_id, 'auth' );
 			return false;
 		}
 
 		Credentials::touch( (int) $cred->id, $new_count > 0 ? $new_count : $prev_count );
-		$this->clear_challenge( $user_id, 'auth' );
 
 		return true;
 	}
@@ -380,11 +533,22 @@ final class Passkey implements Provider {
 			wp_send_json_error( [ 'message' => __( 'User not found.', 'sigil-2fa' ) ], 404 );
 		}
 
+		// The passkey being replaced is left off the exclude list so the device
+		// that holds it may register again; every other one stays on it.
+		$replace = $this->replace_target( $user_id );
 		$exclude = [];
 		foreach ( Credentials::for_user( $user_id ) as $row ) {
-			$exclude[] = $row->credential_id;
+			if ( (int) $row->id !== $replace ) {
+				$exclude[] = $row->credential_id;
+			}
 		}
 
+		// A resident key is preferred rather than required, so a security key
+		// with no room for one still enrols as a second factor. Re-registering
+		// for passwordless sign-in is the one case where only a resident key
+		// will do. The user handle stays the user ID that earlier registrations
+		// used, so a device replaces its old entry for this account rather than
+		// listing the account twice.
 		try {
 			$webauthn = $this->webauthn();
 			$args     = $webauthn->getCreateArgs(
@@ -392,11 +556,12 @@ final class Passkey implements Provider {
 				$user->user_login,
 				$user->display_name,
 				self::CHALLENGE_TTL,
-				false,
+				$replace > 0 ? 'required' : 'preferred',
 				'preferred',
 				null,
 				$exclude
 			);
+			$args->publicKey->extensions = (object) [ 'credProps' => true ];
 			$challenge = $webauthn->getChallenge()->getBinaryString();
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => __( 'Could not start passkey registration.', 'sigil-2fa' ) ], 500 );
@@ -425,6 +590,8 @@ final class Passkey implements Provider {
 			'attestationObject' => isset( $_POST['attestationObject'] ) ? wp_unslash( (string) $_POST['attestationObject'] ) : '',
 			'label'             => isset( $_POST['label'] ) ? wp_unslash( (string) $_POST['label'] ) : '',
 			'transports'        => isset( $_POST['transports'] ) ? wp_unslash( (string) $_POST['transports'] ) : '',
+			'discoverable'      => isset( $_POST['discoverable'] ) ? sanitize_key( wp_unslash( (string) $_POST['discoverable'] ) ) : '',
+			'replace'           => $this->replace_target( $user_id ),
 		];
 		// phpcs:enable WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 
@@ -448,6 +615,25 @@ final class Passkey implements Provider {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- nonce checked in ajax_guard.
 		$raw = isset( $_REQUEST['user_id'] ) ? absint( wp_unslash( $_REQUEST['user_id'] ) ) : get_current_user_id();
 		return $raw > 0 ? $raw : null;
+	}
+
+	/**
+	 * The passkey this registration replaces, when the request names one this user owns.
+	 */
+	private function replace_target( int $user_id ): int {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- nonce checked in ajax_guard.
+		$id = isset( $_REQUEST['replace'] ) ? absint( wp_unslash( $_REQUEST['replace'] ) ) : 0;
+		if ( $id <= 0 ) {
+			return 0;
+		}
+
+		foreach ( Credentials::for_user( $user_id ) as $row ) {
+			if ( (int) $row->id === $id ) {
+				return $id;
+			}
+		}
+
+		return 0;
 	}
 
 	private function user_can_manage( int $user_id ): bool {
@@ -556,6 +742,10 @@ final class Passkey implements Provider {
 		}
 
 		return $host;
+	}
+
+	private static function ceremony_key( string $ceremony ): string {
+		return 'sigil_pk_pl_' . hash( 'sha256', $ceremony );
 	}
 
 	private function challenge_key( int $user_id, string $purpose ): string {
