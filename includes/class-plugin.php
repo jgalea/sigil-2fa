@@ -72,9 +72,11 @@ final class Plugin {
 
 		require_once SIGIL_DIR . 'includes/class-trusted-devices.php';
 		require_once SIGIL_DIR . 'includes/class-zero-setup.php';
+		require_once SIGIL_DIR . 'includes/class-wizard.php';
 		require_once SIGIL_DIR . 'includes/class-woocommerce.php';
 		Trusted_Devices::instance();
 		Zero_Setup::instance();
+		Wizard::instance();
 
 		// The account tab can only be added where there is an account page to put
 		// it on, which cannot be known until every plugin has loaded.
