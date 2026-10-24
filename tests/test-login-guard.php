@@ -32,6 +32,8 @@ class Test_Login_Guard extends WP_UnitTestCase {
 		unset( $_REQUEST['action'] );
 		$this->reset_guard( 'granted', array() );
 		$this->reset_guard( 'session_user', null );
+		$this->reset_guard( 'password_attempted', false );
+		unset( $_COOKIE[ AUTH_COOKIE ], $_COOKIE[ LOGGED_IN_COOKIE ] );
 		parent::tear_down();
 	}
 
@@ -235,22 +237,47 @@ class Test_Login_Guard extends WP_UnitTestCase {
 		$this->assertSame( array( false, true ), $this->sent );
 	}
 
+	private function arrive_with( string $name, string $value ): void {
+		$_COOKIE[ $name ] = $value;
+		$this->reset_guard( 'session_user', null );
+	}
+
 	public function test_someone_already_signed_in_keeps_their_session_when_it_is_reissued(): void {
 		$user = $this->enrolled_user();
-		$this->reset_guard( 'session_user', null );
+		$this->arrive_with( AUTH_COOKIE, wp_generate_auth_cookie( (int) $user->ID, time() + HOUR_IN_SECONDS, 'auth' ) );
 
-		\Sigil\Login_Guard::instance()->note_session_user( (int) $user->ID );
 		wp_set_auth_cookie( (int) $user->ID );
 
 		$this->assertSame( array( true ), $this->sent );
 	}
 
-	public function test_only_the_first_answer_about_the_arriving_session_counts(): void {
+	public function test_a_logged_in_cookie_alone_is_not_an_existing_session(): void {
+		$user = $this->enrolled_user();
+		$this->arrive_with( LOGGED_IN_COOKIE, wp_generate_auth_cookie( (int) $user->ID, time() + HOUR_IN_SECONDS, 'logged_in' ) );
+
+		wp_set_auth_cookie( (int) $user->ID );
+
+		$this->assertSame( array( false ), $this->sent );
+	}
+
+	public function test_who_wordpress_says_is_signed_in_is_not_an_existing_session(): void {
 		$user = $this->enrolled_user();
 		$this->reset_guard( 'session_user', null );
 
-		\Sigil\Login_Guard::instance()->note_session_user( 0 );
 		\Sigil\Login_Guard::instance()->note_session_user( (int) $user->ID );
+		wp_set_current_user( (int) $user->ID );
+		wp_set_auth_cookie( (int) $user->ID );
+
+		$this->assertSame( array( false ), $this->sent );
+	}
+
+	public function test_a_password_sign_in_never_rides_on_an_existing_session(): void {
+		$user = $this->enrolled_user();
+		$this->arrive_with( AUTH_COOKIE, wp_generate_auth_cookie( (int) $user->ID, time() + HOUR_IN_SECONDS, 'auth' ) );
+
+		// wp_signon() would go on to render the challenge and exit, so take its
+		// two steps by hand.
+		wp_authenticate( $user->user_login, 'password' );
 		wp_set_auth_cookie( (int) $user->ID );
 
 		$this->assertSame( array( false ), $this->sent );

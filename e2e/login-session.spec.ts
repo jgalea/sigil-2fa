@@ -10,7 +10,7 @@ import { totp } from './helpers';
 
 const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
 const PASS = 'password';
-const USERS = ['sess_2fa', 'sess_plain', 'sess_skip', 'sess_pw'];
+const USERS = ['sess_2fa', 'sess_plain', 'sess_skip', 'sess_pw', 'sess_atk'];
 
 function cli(args: string[]): string {
 	return execFileSync('npx', ['@wordpress/env', 'run', 'cli', 'wp', ...args], { encoding: 'utf8' }).trim();
@@ -64,12 +64,18 @@ function firstIssued(cookies: Cookie[]): string {
 	return [...first].map(([n, v]) => `${n}=${v}`).join('; ');
 }
 
-async function passwordPost(request: APIRequestContext, login: string): Promise<APIResponse> {
+async function passwordPost(request: APIRequestContext, login: string, cookie = ''): Promise<APIResponse> {
 	return request.post('/wp-login.php', {
 		form: { log: login, pwd: PASS, 'wp-submit': 'Log In', testcookie: '1', redirect_to: '/wp-admin/' },
-		headers: { Cookie: 'wordpress_test_cookie=WP%20Cookie%20check' },
+		headers: { Cookie: ['wordpress_test_cookie=WP%20Cookie%20check', cookie].filter(Boolean).join('; ') },
 		maxRedirects: 0,
 	});
+}
+
+// Auth cookies are scoped to /wp-admin and the plugins folder; the
+// logged_in one is sent everywhere.
+function authCookies(cookies: Cookie[]): Cookie[] {
+	return cookies.filter((c) => c.live && /^wordpress_(sec_)?[a-f0-9]{32}$/.test(c.name));
 }
 
 async function profileWith(playwright: any, baseURL: string, cookie: string): Promise<APIResponse> {
@@ -89,6 +95,7 @@ test.beforeAll(() => {
 	enrolTotp('sess_2fa');
 	enrolTotp('sess_skip');
 	enrolTotp('sess_pw');
+	enrolTotp('sess_atk');
 	cli(['user', 'meta', 'update', 'sess_skip', 'sigil_e2e_skip', '1']);
 });
 
@@ -206,4 +213,37 @@ test('changing your own password keeps you signed in', async ({ page }) => {
 	await page.goto('/wp-admin/profile.php');
 	await expect(page).toHaveURL(/profile\.php/);
 	await expect(page.locator('#your-profile')).toBeVisible();
+});
+
+// A logged_in cookie is sent to every page and is the weaker of the two. Holding
+// one plus the password must not add up to a full session without the factor.
+test('a stolen logged_in cookie and the password still issue no session', async ({ request, playwright, baseURL }) => {
+	const loggedIn = lastLine(
+		cli(['eval', `echo LOGGED_IN_COOKIE . '=' . wp_generate_auth_cookie( ${userId('sess_atk')}, time() + HOUR_IN_SECONDS, 'logged_in' );`])
+	);
+	expect(loggedIn).toMatch(/^wordpress_logged_in_[a-f0-9]{32}=/);
+
+	const res = await passwordPost(request, 'sess_atk', loggedIn);
+	expect(await res.text()).toContain('sigil-challenge-form');
+
+	const cookies = setCookies(res);
+	expect.soft(authCookies(cookies).map((c) => c.name)).toEqual([]);
+
+	const replay = await profileWith(playwright, baseURL!, [firstIssued(cookies), loggedIn].filter(Boolean).join('; '));
+	expect.soft(replay.status()).toBe(302);
+});
+
+// A REST request signed in with an application password has a current user
+// too, and must not be able to turn that into a browser session.
+test('an application password cannot be turned into a browser session', async ({ request }) => {
+	const appPassword = lastLine(cli(['user', 'application-password', 'create', 'sess_atk', 'e2e', '--porcelain']));
+	expect(appPassword.length).toBeGreaterThan(20);
+
+	const res = await request.post('/?rest_route=/sigil-e2e/v1/session', {
+		headers: { Authorization: 'Basic ' + Buffer.from(`sess_atk:${appPassword}`).toString('base64') },
+	});
+	expect(res.status()).toBe(200);
+	expect((await res.json()).user_id).toBe(Number(userId('sess_atk')));
+
+	expect(setCookies(res).filter((c) => c.live).map((c) => c.name)).toEqual([]);
 });
