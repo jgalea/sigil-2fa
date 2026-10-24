@@ -36,9 +36,11 @@ final class Login_Guard {
 	private array $new_users = array();
 
 	/**
-	 * Who the request arrived signed in as, before anything in it ran.
+	 * Who the request arrived signed in as, proven by its auth cookie.
 	 */
 	private ?int $session_user = null;
+
+	private bool $password_attempted = false;
 
 	public static function instance(): Login_Guard {
 		if ( null === self::$instance ) {
@@ -68,19 +70,28 @@ final class Login_Guard {
 	}
 
 	/**
-	 * Only the first answer counts. It comes from the cookies the request
-	 * arrived with; anything later can be steered by code calling
-	 * wp_set_current_user(), and after a password change the old cookie no
-	 * longer validates.
+	 * Read who the request arrived as the first time WordPress asks, which is
+	 * before anything in the request can have changed the password the auth
+	 * cookie is checked against.
+	 *
+	 * Only the auth cookie for this scheme counts. The answer passed in can
+	 * come from the logged_in cookie, which is sent to every page and is the
+	 * weaker of the two, from an application password, or from any plugin's
+	 * filter, and none of those is a session someone has already signed in to.
 	 *
 	 * @param mixed $user_id
 	 * @return mixed
 	 */
 	public function note_session_user( $user_id ) {
-		if ( null === $this->session_user ) {
-			$this->session_user = is_numeric( $user_id ) ? (int) $user_id : 0;
-		}
+		$this->arrived_as();
 		return $user_id;
+	}
+
+	private function arrived_as(): int {
+		if ( null === $this->session_user ) {
+			$this->session_user = (int) wp_validate_auth_cookie( '', is_ssl() ? 'secure_auth' : 'auth' );
+		}
+		return $this->session_user;
 	}
 
 	/**
@@ -95,6 +106,8 @@ final class Login_Guard {
 	 * @return mixed
 	 */
 	public function refuse_password( $user ) {
+		$this->password_attempted = true;
+
 		if ( ! $user instanceof \WP_User || ! self::is_guarded_request() || self::is_credential_check() ) {
 			return $user;
 		}
@@ -124,7 +137,7 @@ final class Login_Guard {
 	 * The session WordPress has just stored for the cookie is destroyed too, so
 	 * nothing is left behind that could be used later. A user who arrived
 	 * already signed in keeps their session when WordPress re-issues it, as it
-	 * does after they change their own password.
+	 * does after they change their own password; see is_existing_session().
 	 *
 	 * An account created in this same request is let through. WooCommerce signs
 	 * a new customer in from its checkout, over AJAX or its Store API on REST,
@@ -151,11 +164,7 @@ final class Login_Guard {
 			return true;
 		}
 
-		// Settle who the request arrived as now, if nothing has asked yet.
-		if ( null === $this->session_user && ! did_action( 'set_current_user' ) ) {
-			get_current_user_id();
-		}
-		if ( $user_id === $this->session_user ) {
+		if ( $this->is_existing_session( $user_id ) ) {
 			return true;
 		}
 
@@ -168,6 +177,22 @@ final class Login_Guard {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Whether the cookie is a re-issue of a session the user already holds.
+	 *
+	 * Never while a password is being checked in the same request: holding a
+	 * session for an account is no reason to let a password sign-in for it
+	 * skip the factor. Never for an application password either, which is
+	 * for API clients and must not become a browser session.
+	 */
+	private function is_existing_session( int $user_id ): bool {
+		if ( $this->password_attempted || App_Passwords::instance()->used_application_password( $user_id ) ) {
+			return false;
+		}
+
+		return $user_id === $this->arrived_as();
 	}
 
 	private static function is_guarded_request(): bool {
