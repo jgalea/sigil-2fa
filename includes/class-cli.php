@@ -157,6 +157,7 @@ final class CLI {
 	 * ---
 	 * options:
 	 *   - two-factor
+	 *   - wordfence
 	 * ---
 	 *
 	 * [--dry-run]
@@ -168,8 +169,8 @@ final class CLI {
 	 * ## EXAMPLES
 	 *
 	 *     wp sigil import two-factor --dry-run
-	 *     wp sigil import two-factor
-	 *     wp sigil import two-factor --user=12
+	 *     wp sigil import wordfence
+	 *     wp sigil import wordfence --user=12
 	 *
 	 * @param list<string>               $args
 	 * @param array<string, string|bool> $assoc_args

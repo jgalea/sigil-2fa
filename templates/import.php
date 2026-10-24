@@ -30,6 +30,7 @@ if ( null !== $report && is_array( $report['users'] ?? null ) ) {
 
 $what = array(
 	'two-factor' => __( 'Copies each user\'s email codes, authenticator app, backup codes and WebAuthn passkeys from the Two Factor plugin into Sigil.', 'sigil-2fa' ),
+	'wordfence'  => __( 'Copies each user\'s authenticator app, recovery codes and passkeys from Wordfence Login Security into Sigil.', 'sigil-2fa' ),
 );
 ?>
 <h2 id="<?php echo esc_attr( 'sigil-import-' . $slug ); ?>">

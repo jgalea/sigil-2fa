@@ -32,6 +32,10 @@ final class Import {
 				'label' => 'Two Factor',
 				'class' => Two_Factor_Import::class,
 			),
+			'wordfence'  => array(
+				'label' => 'Wordfence',
+				'class' => Wordfence_Import::class,
+			),
 		);
 	}
 

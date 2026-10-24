@@ -26,6 +26,9 @@ final class Import_Migration {
 
 	private function __construct() {
 		add_filter( 'two_factor_is_required_for_user', array( Two_Factor_Import::class, 'filter_two_factor_required' ), 99, 2 );
+		add_filter( 'authenticate', array( Wordfence_Import::class, 'stand_down' ), 24 );
+		add_action( 'wp_ajax_nopriv_wordfence_ls_authenticate', array( Wordfence_Import::class, 'ajax_stand_down' ), 1 );
+		add_action( 'wp_ajax_wordfence_ls_authenticate', array( Wordfence_Import::class, 'ajax_stand_down' ), 1 );
 
 		add_action( Network::is_network() ? 'network_admin_notices' : 'admin_notices', array( $this, 'notice' ) );
 		add_action( 'sigil_settings_after', array( $this, 'render_sections' ) );
