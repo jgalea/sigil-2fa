@@ -101,3 +101,18 @@ export async function logoutKeepingTrust(page: Page) {
 	const keep = cookies.filter((c) => !c.name.startsWith('wordpress'));
 	if (keep.length) await ctx.addCookies(keep);
 }
+
+// Enrols TOTP for the logged-in user through the setup screen and returns the
+// secret.
+export async function enrolTotp(page: Page): Promise<string> {
+	await page.goto('/wp-admin/users.php?page=sigil-2fa-setup&method=totp');
+	const secret = await page.locator('input[name="sigil_totp_secret"]').inputValue();
+	await page.fill('input[name="sigil_totp_code"]', totp(secret));
+	await page
+		.locator('button[type="submit"], input[type="submit"]')
+		.filter({ hasText: /enrol|enable|verify|confirm|save/i })
+		.first()
+		.click();
+	await expect(page.locator('body')).toContainText(/backup code/i);
+	return secret;
+}
