@@ -220,6 +220,8 @@ final class Challenge {
 		}
 
 		// Application passwords and non-interactive flows must not be trapped here.
+		// There is no page to render the challenge on, so App_Passwords and
+		// Login_Guard keep a password alone from signing anyone in through them.
 		if ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) {
 			return;
 		}
