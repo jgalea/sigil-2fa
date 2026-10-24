@@ -86,9 +86,9 @@ final class Email implements Provider {
 			$this->send_code( $user_id );
 		}
 
-		echo '<p>' . esc_html__( 'Enter the six-digit code we sent to your email.', 'sigil-2fa' ) . '</p>';
 		echo '<p><label for="sigil-email-code">' . esc_html__( 'Email code', 'sigil-2fa' ) . '</label> ';
-		echo '<input type="text" name="code" id="sigil-email-code" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" maxlength="6" required /></p>';
+		echo '<input type="text" name="code" id="sigil-email-code" inputmode="numeric" pattern="[0-9\s\-]{6,12}" autocomplete="one-time-code" maxlength="12" spellcheck="false" aria-describedby="sigil-email-hint" required autofocus />';
+		echo '<span id="sigil-email-hint" class="sigil-challenge__hint">' . esc_html__( 'Enter the six-digit code we sent to your email.', 'sigil-2fa' ) . '</span></p>';
 	}
 
 	/**
