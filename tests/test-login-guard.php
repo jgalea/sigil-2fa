@@ -282,4 +282,16 @@ class Test_Login_Guard extends WP_UnitTestCase {
 
 		$this->assertSame( array( false ), $this->sent );
 	}
+
+	public function test_a_sign_on_announced_by_wp_authenticate_never_rides_on_an_existing_session(): void {
+		$user = $this->enrolled_user();
+		$this->arrive_with( AUTH_COOKIE, wp_generate_auth_cookie( (int) $user->ID, time() + HOUR_IN_SECONDS, 'auth' ) );
+
+		$login    = $user->user_login;
+		$password = 'password';
+		do_action_ref_array( 'wp_authenticate', array( &$login, &$password ) );
+		wp_set_auth_cookie( (int) $user->ID );
+
+		$this->assertSame( array( false ), $this->sent );
+	}
 }
