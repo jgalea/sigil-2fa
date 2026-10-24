@@ -2,7 +2,7 @@
 
 declare( strict_types=1 );
 
-class Test_Ajax_Login extends WP_UnitTestCase {
+class Test_Login_Guard extends WP_UnitTestCase {
 
 	/** @var list<bool> */
 	private array $sent = array();
@@ -30,7 +30,18 @@ class Test_Ajax_Login extends WP_UnitTestCase {
 
 	public function tear_down(): void {
 		unset( $_REQUEST['action'] );
+		$this->reset_guard( 'granted', array() );
+		$this->reset_guard( 'session_user', null );
 		parent::tear_down();
+	}
+
+	/**
+	 * @param mixed $value
+	 */
+	private function reset_guard( string $property, $value ): void {
+		$prop = new ReflectionProperty( \Sigil\Login_Guard::class, $property );
+		$prop->setAccessible( true );
+		$prop->setValue( \Sigil\Login_Guard::instance(), $value );
 	}
 
 	// Every factory user is registered inside the test's own request, which the
@@ -40,9 +51,7 @@ class Test_Ajax_Login extends WP_UnitTestCase {
 		\Sigil\Store::set_method( (int) $user->ID, 'backup', array( 'hashes' => array( 'x' ) ) );
 
 		if ( ! $registered_now ) {
-			$new_users = new ReflectionProperty( \Sigil\Login_Guard::class, 'new_users' );
-			$new_users->setAccessible( true );
-			$new_users->setValue( \Sigil\Login_Guard::instance(), array() );
+			$this->reset_guard( 'new_users', array() );
 		}
 
 		return $user;
@@ -144,5 +153,69 @@ class Test_Ajax_Login extends WP_UnitTestCase {
 		$this->as_ajax( 'popup_login' );
 
 		$this->assertTrue( \Sigil\Login_Guard::instance()->hold_cookies( true, 0, 0, 0, '', '' ) );
+	}
+
+	public function test_an_ordinary_sign_on_issues_no_session_before_the_challenge(): void {
+		$user = $this->enrolled_user();
+
+		wp_set_auth_cookie( (int) $user->ID );
+
+		$this->assertSame( array( false ), $this->sent );
+		$this->assertSame( array(), WP_Session_Tokens::get_instance( (int) $user->ID )->get_all() );
+	}
+
+	public function test_a_completed_challenge_grants_the_session(): void {
+		$user  = $this->enrolled_user();
+		$codes = ( new \Sigil\Providers\Backup_Codes() )->generate( (int) $user->ID );
+		$token = \Sigil\Challenge::start( $user, false );
+
+		wp_set_auth_cookie( (int) $user->ID );
+		$this->assertTrue( \Sigil\Challenge::complete( $token, 'backup', array( 'code' => $codes[0] ) ) );
+		wp_set_auth_cookie( (int) $user->ID );
+
+		$this->assertSame( array( false, true ), $this->sent, 'held before the factor, sent after it' );
+	}
+
+	public function test_a_failed_challenge_grants_nothing(): void {
+		$user = $this->enrolled_user();
+		( new \Sigil\Providers\Backup_Codes() )->generate( (int) $user->ID );
+		$token = \Sigil\Challenge::start( $user, false );
+
+		$this->assertWPError( \Sigil\Challenge::complete( $token, 'backup', array( 'code' => 'wrong' ) ) );
+		wp_set_auth_cookie( (int) $user->ID );
+
+		$this->assertSame( array( false ), $this->sent );
+	}
+
+	public function test_a_grant_is_for_that_user_only(): void {
+		$granted = $this->enrolled_user();
+		$other   = $this->enrolled_user();
+
+		\Sigil\Login_Guard::grant( (int) $granted->ID );
+		wp_set_auth_cookie( (int) $other->ID );
+		wp_set_auth_cookie( (int) $granted->ID );
+
+		$this->assertSame( array( false, true ), $this->sent );
+	}
+
+	public function test_someone_already_signed_in_keeps_their_session_when_it_is_reissued(): void {
+		$user = $this->enrolled_user();
+		$this->reset_guard( 'session_user', null );
+
+		\Sigil\Login_Guard::instance()->note_session_user( (int) $user->ID );
+		wp_set_auth_cookie( (int) $user->ID );
+
+		$this->assertSame( array( true ), $this->sent );
+	}
+
+	public function test_only_the_first_answer_about_the_arriving_session_counts(): void {
+		$user = $this->enrolled_user();
+		$this->reset_guard( 'session_user', null );
+
+		\Sigil\Login_Guard::instance()->note_session_user( 0 );
+		\Sigil\Login_Guard::instance()->note_session_user( (int) $user->ID );
+		wp_set_auth_cookie( (int) $user->ID );
+
+		$this->assertSame( array( false ), $this->sent );
 	}
 }
