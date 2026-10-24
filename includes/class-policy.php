@@ -17,7 +17,8 @@ final class Policy {
 	 *   roles: array<string, bool>,
 	 *   min_capability: string,
 	 *   grace_days: int,
-	 *   block_app_passwords: array<string, bool>
+	 *   block_app_passwords: array<string, bool>,
+	 *   passwordless: bool
 	 * }
 	 */
 	private static function defaults(): array {
@@ -27,6 +28,7 @@ final class Policy {
 			'min_capability'      => '',
 			'grace_days'          => 7,
 			'block_app_passwords' => [],
+			'passwordless'        => true,
 		];
 	}
 
@@ -36,7 +38,8 @@ final class Policy {
 	 *   roles: array<string, bool>,
 	 *   min_capability: string,
 	 *   grace_days: int,
-	 *   block_app_passwords: array<string, bool>
+	 *   block_app_passwords: array<string, bool>,
+	 *   passwordless: bool
 	 * }
 	 */
 	public static function get(): array {
@@ -167,7 +170,8 @@ final class Policy {
 	 *   roles: array<string, bool>,
 	 *   min_capability: string,
 	 *   grace_days: int,
-	 *   block_app_passwords: array<string, bool>
+	 *   block_app_passwords: array<string, bool>,
+	 *   passwordless: bool
 	 * }
 	 */
 	private static function sanitize( array $policy ): array {
@@ -189,6 +193,7 @@ final class Policy {
 			'min_capability'      => $cap,
 			'grace_days'          => $grace,
 			'block_app_passwords' => self::sanitize_role_map( $policy['block_app_passwords'] ?? [] ),
+			'passwordless'        => ! empty( $policy['passwordless'] ),
 		];
 	}
 

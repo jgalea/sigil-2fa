@@ -49,6 +49,8 @@ final class Schema {
 			sign_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			transports VARCHAR(120) NOT NULL DEFAULT '',
 			label VARCHAR(190) NOT NULL DEFAULT '',
+			user_handle VARBINARY(64) NOT NULL DEFAULT '',
+			discoverable TINYINT(1) DEFAULT NULL,
 			created_at DATETIME NOT NULL,
 			last_used_at DATETIME DEFAULT NULL,
 			PRIMARY KEY  (id),

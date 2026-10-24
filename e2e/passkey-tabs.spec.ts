@@ -1,22 +1,7 @@
-import { test, expect, Page } from '@playwright/test';
-import { resetTwoFactor, login, logout } from './helpers';
+import { test, expect } from '@playwright/test';
+import { resetTwoFactor, login, logout, addVirtualAuthenticator } from './helpers';
 
 test.beforeEach(() => resetTwoFactor());
-
-async function addVirtualAuthenticator(page: Page) {
-	const client = await page.context().newCDPSession(page);
-	await client.send('WebAuthn.enable');
-	await client.send('WebAuthn.addVirtualAuthenticator', {
-		options: {
-			protocol: 'ctap2',
-			transport: 'internal',
-			hasResidentKey: true,
-			hasUserVerification: true,
-			isUserVerified: true,
-			automaticPresenceSimulation: true,
-		},
-	});
-}
 
 // A refresh mints a fresh challenge. The options the first render handed the page
 // must still verify, or an ordinary reload costs the user a failed attempt.

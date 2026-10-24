@@ -37,6 +37,8 @@ final class Plugin {
 		Rate_Limit::schedule_purge();
 		require_once SIGIL_DIR . 'includes/class-challenge.php';
 		Challenge::instance();
+		require_once SIGIL_DIR . 'includes/class-passwordless.php';
+		Passwordless::instance();
 
 		require_once SIGIL_DIR . 'includes/class-recovery.php';
 		require_once SIGIL_DIR . 'includes/class-cli.php';

@@ -116,3 +116,30 @@ export async function enrolTotp(page: Page): Promise<string> {
 	await expect(page.locator('body')).toContainText(/backup code/i);
 	return secret;
 }
+
+// A software authenticator, so the browser prompt resolves without a real device.
+// It also answers passkey autofill by itself, which a person has to pick from the
+// username field, so a page with it would sign in before a test could type a
+// password. Autofill stays off unless a test is about autofill.
+export async function addVirtualAuthenticator(page: Page, { autofill = false } = {}) {
+	if (!autofill) {
+		await page.addInitScript(() => {
+			if (window.PublicKeyCredential) {
+				window.PublicKeyCredential.isConditionalMediationAvailable = async () => false;
+			}
+		});
+	}
+
+	const client = await page.context().newCDPSession(page);
+	await client.send('WebAuthn.enable');
+	await client.send('WebAuthn.addVirtualAuthenticator', {
+		options: {
+			protocol: 'ctap2',
+			transport: 'internal',
+			hasResidentKey: true,
+			hasUserVerification: true,
+			isUserVerified: true,
+			automaticPresenceSimulation: true,
+		},
+	});
+}

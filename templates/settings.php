@@ -130,6 +130,19 @@ $locked_out = ! empty( $locked_out );
 			</tr>
 
 			<tr>
+				<th scope="row"><?php echo esc_html__( 'Passwordless sign-in', 'sigil-2fa' ); ?></th>
+				<td>
+					<label>
+						<input type="checkbox" name="sigil_policy[passwordless]" value="1" <?php checked( ! empty( $policy['passwordless'] ) ); ?> />
+						<?php echo esc_html__( 'Let anyone with a passkey sign in with it alone, without a password', 'sigil-2fa' ); ?>
+					</label>
+					<p class="description">
+						<?php echo esc_html__( 'The passkey must verify the person with a PIN or biometric, so it counts as two-factor authentication on its own. Needs PHP 8.0 or later.', 'sigil-2fa' ); ?>
+					</p>
+				</td>
+			</tr>
+
+			<tr>
 				<th scope="row"><?php echo esc_html__( 'Disable application passwords', 'sigil-2fa' ); ?></th>
 				<td>
 					<?php if ( array() === $roles ) : ?>
