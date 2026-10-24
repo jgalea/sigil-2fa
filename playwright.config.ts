@@ -16,7 +16,7 @@ export default defineConfig({
 	workers: 1,
 	retries: 0,
 	use: {
-		baseURL: 'http://localhost:8877',
+		baseURL: process.env.WP_BASE_URL || 'http://localhost:8877',
 		trace: 'retain-on-failure',
 		screenshot: 'only-on-failure',
 	},
