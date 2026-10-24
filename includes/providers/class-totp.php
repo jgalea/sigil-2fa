@@ -131,7 +131,8 @@ final class TOTP implements Provider {
 		// and email providers already use. The challenge handler passes raw POST
 		// straight through, so a mismatch here silently fails every login.
 		echo '<p><label for="sigil-totp-challenge">' . esc_html__( 'Authenticator code', 'sigil-2fa' ) . '</label> ';
-		echo '<input type="text" name="code" id="sigil-totp-challenge" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" /></p>';
+		echo '<input type="text" name="code" id="sigil-totp-challenge" inputmode="numeric" pattern="[0-9\s\-]{6,12}" autocomplete="one-time-code" maxlength="12" spellcheck="false" aria-describedby="sigil-totp-hint" required autofocus />';
+		echo '<span id="sigil-totp-hint" class="sigil-challenge__hint">' . esc_html__( 'Enter the 6-digit code from your authenticator app.', 'sigil-2fa' ) . '</span></p>';
 	}
 
 	/**

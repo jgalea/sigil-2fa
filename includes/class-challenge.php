@@ -448,11 +448,16 @@ final class Challenge {
 		// on_login often runs before those helpers have printed, but they are defined.
 		// Never require wp-login.php here: it would re-enter the login controller.
 		if ( function_exists( 'login_header' ) ) {
+			// Core prints the error without a live-region role, so a screen reader
+			// never hears that the code was refused.
+			$announce = static fn( $html ) => '' === (string) $html ? $html : '<span role="alert">' . $html . '</span>';
+			add_filter( 'login_errors', $announce );
 			login_header(
 				$login_title,
 				'',
 				$challenge_error instanceof \WP_Error ? $challenge_error : new \WP_Error()
 			);
+			remove_filter( 'login_errors', $announce );
 			require SIGIL_DIR . 'templates/challenge.php';
 			login_footer();
 			return;
@@ -485,7 +490,7 @@ final class Challenge {
 	<div id="login">
 		<?php
 		if ( $challenge_error instanceof \WP_Error && $challenge_error->has_errors() ) {
-			echo '<div id="login_error">' . wp_kses_post( $challenge_error->get_error_message() ) . '</div>';
+			echo '<div id="login_error" role="alert">' . wp_kses_post( $challenge_error->get_error_message() ) . '</div>';
 		}
 		require SIGIL_DIR . 'templates/challenge.php';
 		?>
