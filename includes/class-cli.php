@@ -157,6 +157,7 @@ final class CLI {
 	 * ---
 	 * options:
 	 *   - two-factor
+	 *   - wp-2fa
 	 *   - wordfence
 	 * ---
 	 *
@@ -166,11 +167,15 @@ final class CLI {
 	 * [--user=<user>]
 	 * : Only this user (ID, login, or email).
 	 *
+	 * [--policy]
+	 * : wp-2fa only. Also switch Sigil's policy on for the roles WP 2FA enforced.
+	 *
 	 * ## EXAMPLES
 	 *
 	 *     wp sigil import two-factor --dry-run
-	 *     wp sigil import wordfence
+	 *     wp sigil import wp-2fa
 	 *     wp sigil import wordfence --user=12
+	 *     wp sigil import wp-2fa --policy
 	 *
 	 * @param list<string>               $args
 	 * @param array<string, string|bool> $assoc_args
@@ -231,12 +236,36 @@ final class CLI {
 			)
 		);
 
+		if ( 'wp-2fa' === $slug ) {
+			$this->import_policy( ! empty( $assoc_args['policy'] ) && ! $dry_run );
+		}
+
 		if ( $c['attention'] > 0 ) {
 			\WP_CLI::warning( sprintf( 'Some users had a method Sigil could not carry over. %1$s keeps protecting them while it is active, so leave it active until they have set up a method in Sigil.', $label ) );
 			return;
 		}
 
 		\WP_CLI::success( $dry_run ? 'Dry run complete. Nothing was written.' : sprintf( 'Import complete. %1$s data was left in place; deactivate %1$s once you have checked the result.', $label ) );
+	}
+
+	private function import_policy( bool $apply ): void {
+		$mapped = WP_2FA_Import::policy();
+		if ( null === $mapped['policy'] ) {
+			\WP_CLI::log( 'WP 2FA policy: no role is required to use two-factor, nothing to bring across.' );
+		} else {
+			\WP_CLI::log(
+				sprintf(
+					'WP 2FA policy: required for %s, %d days to set up. %s',
+					implode( ', ', array_keys( $mapped['policy']['roles'] ) ),
+					$mapped['policy']['grace_days'],
+					$apply ? ( WP_2FA_Import::apply_policy() ? 'Applied to Sigil.' : 'Not applied.' ) : 'Pass --policy to apply it to Sigil.'
+				)
+			);
+		}
+
+		if ( [] !== $mapped['skipped'] ) {
+			\WP_CLI::log( 'Not brought across (Sigil\'s policy works by role): ' . implode( ', ', $mapped['skipped'] ) );
+		}
 	}
 
 	/**

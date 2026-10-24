@@ -32,6 +32,10 @@ final class Import {
 				'label' => 'Two Factor',
 				'class' => Two_Factor_Import::class,
 			),
+			'wp-2fa'     => array(
+				'label' => 'WP 2FA',
+				'class' => WP_2FA_Import::class,
+			),
 			'wordfence'  => array(
 				'label' => 'Wordfence',
 				'class' => Wordfence_Import::class,

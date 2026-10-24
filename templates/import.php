@@ -6,6 +6,7 @@
  * @var string                    $label
  * @var class-string              $importer
  * @var array<string, mixed>|null $report
+ * @var array<string, mixed>|null $policy
  */
 
 declare( strict_types=1 );
@@ -30,6 +31,7 @@ if ( null !== $report && is_array( $report['users'] ?? null ) ) {
 
 $what = array(
 	'two-factor' => __( 'Copies each user\'s email codes, authenticator app, backup codes and WebAuthn passkeys from the Two Factor plugin into Sigil.', 'sigil-2fa' ),
+	'wp-2fa'     => __( 'Copies each user\'s authenticator app, email codes, passkeys and backup codes from WP 2FA into Sigil.', 'sigil-2fa' ),
 	'wordfence'  => __( 'Copies each user\'s authenticator app, recovery codes and passkeys from Wordfence Login Security into Sigil.', 'sigil-2fa' ),
 );
 ?>
@@ -126,3 +128,31 @@ $what = array(
 	<?php submit_button( __( 'Preview import', 'sigil-2fa' ), 'secondary', 'sigil_import_preview', false, array( 'id' => 'sigil-import-preview-' . $slug ) ); ?>
 	<?php submit_button( __( 'Import now', 'sigil-2fa' ), 'primary', 'sigil_import_run', false, array( 'id' => 'sigil-import-run-' . $slug ) ); ?>
 </form>
+
+<?php if ( is_array( $policy ) ) : ?>
+	<h3 id="sigil-import-wp-2fa-policy"><?php echo esc_html__( 'WP 2FA policy', 'sigil-2fa' ); ?></h3>
+	<?php if ( is_array( $policy['policy'] ?? null ) ) : ?>
+		<p style="max-width:720px;">
+			<?php
+			echo esc_html(
+				sprintf(
+					/* translators: 1: comma-separated role names, 2: number of days */
+					__( 'WP 2FA requires two-factor for these roles: %1$s, with %2$d days to set it up. Applying it switches Sigil\'s requirement on for the same roles. Nothing changes until you choose to.', 'sigil-2fa' ),
+					implode( ', ', array_keys( $policy['policy']['roles'] ) ),
+					(int) $policy['policy']['grace_days']
+				)
+			);
+			?>
+		</p>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="<?php echo esc_attr( \Sigil\Import_Migration::policy_action() ); ?>" />
+			<?php wp_nonce_field( \Sigil\Import_Migration::policy_action() ); ?>
+			<?php submit_button( __( 'Apply WP 2FA policy to Sigil', 'sigil-2fa' ), 'secondary', 'sigil_import_policy', false ); ?>
+		</form>
+	<?php else : ?>
+		<p style="max-width:720px;"><?php echo esc_html__( 'WP 2FA does not require two-factor for any role, so there is no policy to bring across.', 'sigil-2fa' ); ?></p>
+	<?php endif; ?>
+	<?php if ( array() !== ( $policy['skipped'] ?? array() ) ) : ?>
+		<p style="max-width:720px;"><?php echo esc_html__( 'WP 2FA also enforces or exempts individual users, or only super administrators. Sigil\'s policy works by role, so those settings are not brought across; set them up again in Sigil if you still need them.', 'sigil-2fa' ); ?></p>
+	<?php endif; ?>
+<?php endif; ?>

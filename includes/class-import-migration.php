@@ -13,7 +13,8 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Import_Migration {
 
-	private const ACTION = 'sigil_import';
+	private const ACTION        = 'sigil_import';
+	private const POLICY_ACTION = 'sigil_import_wp_2fa_policy';
 
 	private static ?Import_Migration $instance = null;
 
@@ -33,6 +34,7 @@ final class Import_Migration {
 		add_action( Network::is_network() ? 'network_admin_notices' : 'admin_notices', array( $this, 'notice' ) );
 		add_action( 'sigil_settings_after', array( $this, 'render_sections' ) );
 		add_action( 'admin_post_' . self::ACTION, array( $this, 'handle_post' ) );
+		add_action( 'admin_post_' . self::POLICY_ACTION, array( $this, 'handle_policy_post' ) );
 	}
 
 	public function notice(): void {
@@ -75,6 +77,7 @@ final class Import_Migration {
 
 			$importer = $source['class'];
 			$label    = $source['label'];
+			$policy   = WP_2FA_Import::class === $importer ? WP_2FA_Import::policy() : null;
 
 			require SIGIL_DIR . 'templates/import.php';
 		}
@@ -103,8 +106,25 @@ final class Import_Migration {
 		exit;
 	}
 
+	public function handle_policy_post(): void {
+		if ( ! current_user_can( Network::manage_capability() ) ) {
+			wp_die( esc_html__( 'You do not have permission to change these settings.', 'sigil-2fa' ), '', array( 'response' => 403 ) );
+		}
+
+		check_admin_referer( self::POLICY_ACTION );
+
+		WP_2FA_Import::apply_policy();
+
+		wp_safe_redirect( add_query_arg( 'updated', '1', Network::settings_url() ) . '#sigil-import-wp-2fa' );
+		exit;
+	}
+
 	public static function action(): string {
 		return self::ACTION;
+	}
+
+	public static function policy_action(): string {
+		return self::POLICY_ACTION;
 	}
 
 	public static function nonce_action( string $slug ): string {
