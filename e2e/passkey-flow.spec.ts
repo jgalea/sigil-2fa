@@ -1,23 +1,7 @@
-import { test, expect, Page } from '@playwright/test';
-import { resetTwoFactor, login, logout } from './helpers';
+import { test, expect } from '@playwright/test';
+import { resetTwoFactor, login, logout, addVirtualAuthenticator } from './helpers';
 
 test.beforeEach(() => resetTwoFactor());
-
-// A software authenticator, so the browser prompt resolves without a real device.
-async function addVirtualAuthenticator(page: Page) {
-	const client = await page.context().newCDPSession(page);
-	await client.send('WebAuthn.enable');
-	await client.send('WebAuthn.addVirtualAuthenticator', {
-		options: {
-			protocol: 'ctap2',
-			transport: 'internal',
-			hasResidentKey: true,
-			hasUserVerification: true,
-			isUserVerified: true,
-			automaticPresenceSimulation: true,
-		},
-	});
-}
 
 // The challenge screen runs logged out, so the passkey assertion cannot go through
 // an authenticated admin-ajax call. This is the flow that proves it doesn't.
