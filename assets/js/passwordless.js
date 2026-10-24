@@ -66,7 +66,6 @@
 				if (!available) {
 					return;
 				}
-				username.setAttribute('autocomplete', 'username webauthn');
 				return fetchCeremony().then(function (data) {
 					autofill = new window.AbortController();
 					return navigator.credentials
@@ -131,6 +130,9 @@
 			});
 
 			var username = form.querySelector('input[name="log"]');
+			if (username) {
+				username.setAttribute('autocomplete', 'username webauthn');
+			}
 			if (username && !autofillStarted) {
 				autofillStarted = true;
 				startAutofill(root, username);
