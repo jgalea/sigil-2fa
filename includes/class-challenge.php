@@ -160,8 +160,11 @@ final class Challenge {
 			return self::retryable( 'sigil_invalid_code', __( 'Verification failed.', 'sigil-2fa' ), self::reissue( $payload ) );
 		}
 
+		// Only this request's attempt goes back to the address, so passing a
+		// challenge on an account of your own cannot wipe the failures counted
+		// there against other accounts.
 		Rate_Limit::clear( $user_key );
-		Rate_Limit::clear( $ip_key );
+		Rate_Limit::release( $ip_key );
 
 		// The factor is verified and the token spent, so this request may now
 		// issue the session the password step was refused.

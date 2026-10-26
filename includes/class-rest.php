@@ -442,8 +442,7 @@ final class REST {
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function get_passwordless() {
-		$provider = Providers::instance()->get( 'passkey' );
-		$minted   = Passwordless::enabled() && $provider instanceof Providers\Passkey ? $provider->discoverable_options() : null;
+		$minted = Passwordless::instance()->mint();
 		if ( null === $minted ) {
 			return new \WP_Error(
 				'sigil_passwordless_unavailable',

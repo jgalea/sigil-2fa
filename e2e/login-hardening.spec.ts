@@ -107,7 +107,9 @@ async function assertion(page: Page): Promise<{ ceremony: string; assertion: str
 	});
 }
 
-async function passkeyFormPost(request: APIRequestContext, signed: { ceremony: string; assertion: string }) {
+// Posted from the browser's own cookie jar, which holds the cookie the ceremony
+// is bound to, unless a test hands in a request context without it.
+async function passkeyFormPost(request: APIRequestContext, signed: { ceremony: string; assertion: string }, headers: Record<string, string> = {}) {
 	return request.post('/wp-login.php', {
 		form: {
 			log: '',
@@ -118,7 +120,7 @@ async function passkeyFormPost(request: APIRequestContext, signed: { ceremony: s
 			testcookie: '1',
 			redirect_to: '/wp-admin/',
 		},
-		headers: { Cookie: 'wordpress_test_cookie=WP%20Cookie%20check' },
+		headers,
 		maxRedirects: 0,
 	});
 }
@@ -178,7 +180,7 @@ test.describe('passwordless', () => {
 		const signed = await assertion(page);
 		const before = sessionCount('admin');
 
-		const res = await passkeyFormPost(request, signed);
+		const res = await passkeyFormPost(page.request, signed);
 		expect(res.status()).toBe(302);
 
 		const cookies = setCookies(res);
@@ -194,7 +196,7 @@ test.describe('passwordless', () => {
 		cli(['user', 'application-password', 'create', 'hard_lim', 'e2e']);
 		const signed = await assertion(page);
 
-		const res = await request.post('/?rest_route=/sigil/v1/passwordless', {
+		const res = await page.request.post('/?rest_route=/sigil/v1/passwordless', {
 			data: { ceremony: signed.ceremony, assertion: JSON.parse(signed.assertion), remember: false },
 		});
 		expect(res.status()).toBe(200);
@@ -212,9 +214,41 @@ test.describe('passwordless', () => {
 		expect(await locked.text()).toContain('Too many failed sign-in attempts');
 		expect(live(setCookies(locked))).toEqual([]);
 
-		const res = await passkeyFormPost(request, await assertion(page));
+		const res = await passkeyFormPost(page.request, await assertion(page));
 		expect(res.status()).toBe(302);
 		expect((await profileWith(playwright, baseURL!, firstIssued(setCookies(res)))).status()).toBe(200);
+	});
+
+	// A page on another site can post an attacker's own ceremony and assertion
+	// through a visitor's browser. Without the cookie the ceremony was bound to,
+	// or from another origin, nobody is signed in.
+	test('a ceremony posted without its browser cookie signs nobody in', async ({ page, request }) => {
+		const signed = await assertion(page);
+		const before = sessionCount('admin');
+
+		const form = await passkeyFormPost(request, signed, { Cookie: 'wordpress_test_cookie=WP%20Cookie%20check' });
+		expect.soft(live(setCookies(form))).toEqual([]);
+
+		const again = await assertion(page);
+		const rest = await request.post('/?rest_route=/sigil/v1/passwordless', {
+			data: { ceremony: again.ceremony, assertion: JSON.parse(again.assertion), remember: false },
+		});
+		expect.soft(rest.status()).toBe(401);
+		expect.soft(live(setCookies(rest))).toEqual([]);
+		expect.soft(sessionCount('admin')).toBe(before);
+	});
+
+	test('a ceremony posted from another origin signs nobody in', async ({ page }) => {
+		const signed = await assertion(page);
+		const before = sessionCount('admin');
+
+		const res = await page.request.post('/?rest_route=/sigil/v1/passwordless', {
+			data: { ceremony: signed.ceremony, assertion: JSON.parse(signed.assertion), remember: false },
+			headers: { Origin: 'https://attacker.example' },
+		});
+		expect.soft(res.status()).toBe(401);
+		expect.soft(live(setCookies(res))).toEqual([]);
+		expect.soft(sessionCount('admin')).toBe(before);
 	});
 });
 

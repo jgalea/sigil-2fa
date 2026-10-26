@@ -24,6 +24,12 @@ final class Passwordless {
 	private const ASSERTION_FIELD = 'sigil_passwordless_assertion';
 
 	/**
+	 * Ties a ceremony to the browser that asked for it. See mint().
+	 */
+	private const BINDING_COOKIE = 'sigil_passwordless';
+	private const BINDING_TTL    = 5 * MINUTE_IN_SECONDS;
+
+	/**
 	 * What core and the cookie check say when no password was typed. Anything
 	 * else came from a filter that refused the sign-in, and stands.
 	 */
@@ -107,6 +113,106 @@ final class Passwordless {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Options for a passwordless sign-in, bound to the browser asking.
+	 *
+	 * A ceremony on its own is a bearer value. An attacker can mint one, sign
+	 * it with a passkey for their own account, and have a page on another site
+	 * post both through a visitor's browser, which signs the visitor in as the
+	 * attacker without their knowing. So the browser gets a random cookie that
+	 * other sites cannot send (SameSite=Strict) and cannot read, the ceremony
+	 * remembers its hash, and spending the ceremony needs that cookie back. One
+	 * value per browser, so several tabs or the autofill request and the button
+	 * can each hold a ceremony at once.
+	 *
+	 * @return array{ceremony: string, options: \stdClass}|null
+	 */
+	public function mint(): ?array {
+		$passkey = Providers::instance()->get( 'passkey' );
+		$minted  = self::enabled() && $passkey instanceof Providers\Passkey ? $passkey->discoverable_options() : null;
+		if ( null === $minted ) {
+			return null;
+		}
+
+		$binding = self::binding_from_cookie();
+		if ( '' === $binding ) {
+			$binding = bin2hex( random_bytes( 32 ) );
+		}
+		self::send_binding( $binding );
+
+		set_transient( self::binding_key( $minted['ceremony'] ), hash( 'sha256', $binding ), self::BINDING_TTL );
+
+		return $minted;
+	}
+
+	private static function binding_from_cookie(): string {
+		$raw = isset( $_COOKIE[ self::BINDING_COOKIE ] ) && is_string( $_COOKIE[ self::BINDING_COOKIE ] ) ? $_COOKIE[ self::BINDING_COOKIE ] : '';
+
+		return preg_match( '/^[a-f0-9]{64}$/', $raw ) ? $raw : '';
+	}
+
+	private static function send_binding( string $binding ): void {
+		// Visible to the rest of this request too, so a second ceremony minted
+		// before the response goes out shares it.
+		$_COOKIE[ self::BINDING_COOKIE ] = $binding;
+
+		if ( headers_sent() ) {
+			return;
+		}
+
+		setcookie(
+			self::BINDING_COOKIE,
+			$binding,
+			array(
+				'expires'  => time() + self::BINDING_TTL,
+				'path'     => defined( 'COOKIEPATH' ) && '' !== COOKIEPATH ? COOKIEPATH : '/',
+				'domain'   => defined( 'COOKIE_DOMAIN' ) && COOKIE_DOMAIN ? COOKIE_DOMAIN : '',
+				'secure'   => is_ssl() || 'https' === wp_parse_url( home_url(), PHP_URL_SCHEME ),
+				'httponly' => true,
+				'samesite' => 'Strict',
+			)
+		);
+	}
+
+	private static function binding_key( string $ceremony ): string {
+		return 'sigil_pl_bind_' . hash( 'sha256', $ceremony );
+	}
+
+	/**
+	 * Whether the ceremony is being spent by the browser it was minted for.
+	 * Read once: the stored hash goes with the ceremony either way.
+	 */
+	private static function bound_here( string $ceremony ): bool {
+		$key    = self::binding_key( $ceremony );
+		$stored = get_transient( $key );
+		delete_transient( $key );
+
+		$binding = self::binding_from_cookie();
+
+		return is_string( $stored ) && '' !== $binding && hash_equals( $stored, hash( 'sha256', $binding ) );
+	}
+
+	/**
+	 * A browser names the page a POST came from. No header means the request
+	 * did not come from a page at all, which is not the attack this stops.
+	 */
+	private static function origin_allowed(): bool {
+		$origin = isset( $_SERVER['HTTP_ORIGIN'] ) && is_string( $_SERVER['HTTP_ORIGIN'] ) ? trim( wp_unslash( $_SERVER['HTTP_ORIGIN'] ) ) : '';
+		if ( '' === $origin ) {
+			return true;
+		}
+
+		$allowed = array();
+		foreach ( array( home_url(), site_url() ) as $url ) {
+			$parts = wp_parse_url( $url );
+			if ( is_array( $parts ) && isset( $parts['scheme'], $parts['host'] ) ) {
+				$allowed[] = strtolower( $parts['scheme'] . '://' . $parts['host'] . ( isset( $parts['port'] ) ? ':' . $parts['port'] : '' ) );
+			}
+		}
+
+		return in_array( strtolower( rtrim( $origin, '/' ) ), $allowed, true );
 	}
 
 	/**
@@ -197,11 +303,16 @@ final class Passwordless {
 			return self::rate_limited();
 		}
 
+		$failed = new \WP_Error( 'sigil_passkey_failed', __( 'That passkey could not be verified. Please try again.', 'sigil-2fa' ) );
+		if ( ! self::bound_here( $ceremony ) || ! self::origin_allowed() ) {
+			return $failed;
+		}
+
 		$passkey = Providers::instance()->get( 'passkey' );
 		$user_id = $passkey instanceof Providers\Passkey ? $passkey->discoverable_owner( $ceremony, $assertion ) : 0;
 		$user    = $user_id > 0 ? get_userdata( $user_id ) : false;
 		if ( ! $user instanceof \WP_User ) {
-			return new \WP_Error( 'sigil_passkey_failed', __( 'That passkey could not be verified. Please try again.', 'sigil-2fa' ) );
+			return $failed;
 		}
 
 		// An account the challenge has locked stays locked here, or signing in
@@ -211,8 +322,11 @@ final class Passwordless {
 			return self::rate_limited();
 		}
 
+		// The address only gets back the attempt this request took. Clearing it
+		// would let anyone with a passkey account of their own wipe the count
+		// between guesses at other accounts from the same address.
 		Rate_Limit::clear( $user_key );
-		Rate_Limit::clear( $ip_key );
+		Rate_Limit::release( $ip_key );
 
 		// wp_signon() sets the cookie straight after this filter, before
 		// wp_login, and on REST and AJAX nothing comes back later to issue it

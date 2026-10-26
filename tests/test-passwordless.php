@@ -22,6 +22,11 @@ class Test_Passwordless extends WP_UnitTestCase {
 
 	private int $user_id;
 
+	public function tear_down(): void {
+		unset( $_COOKIE['sigil_passwordless'], $_SERVER['HTTP_ORIGIN'] );
+		parent::tear_down();
+	}
+
 	public function set_up(): void {
 		if ( PHP_VERSION_ID < 80000 ) {
 			$this->markTestSkipped( 'Passkeys need PHP 8.0.' );
@@ -60,7 +65,9 @@ class Test_Passwordless extends WP_UnitTestCase {
 	 * @return array{ceremony: string, assertion: array<string, string>}
 	 */
 	private function signed( int $flags = self::UP_UV, int $counter = 0, ?string $handle = null ): array {
-		$minted = $this->passkey()->discoverable_options();
+		// Minted the way the login page asks for it, which binds the ceremony
+		// to this browser.
+		$minted = Sigil\Passwordless::instance()->mint();
 		$this->assertNotNull( $minted );
 
 		$challenge = $minted['options']->publicKey->challenge->getBinaryString();
@@ -177,9 +184,11 @@ class Test_Passwordless extends WP_UnitTestCase {
 	}
 
 	public function test_switched_off_the_assertion_is_ignored(): void {
+		// Minted while it was on: switched off, nothing mints one at all.
+		$signed = $this->signed();
 		Sigil\Policy::update( array( 'passwordless' => false ) );
 
-		$result = $this->sign_on( $this->signed() );
+		$result = $this->sign_on( $signed );
 
 		$this->assertWPError( $result );
 		$this->assertContains( 'empty_username', $result->get_error_codes() );
@@ -378,5 +387,97 @@ class Test_Passwordless extends WP_UnitTestCase {
 
 		$this->assertInstanceOf( WP_User::class, $user );
 		$this->assertSame( $this->user_id, (int) $user->ID );
+	}
+
+	// A page on another site can post a ceremony and assertion the attacker
+	// made with their own passkey, and sign the visitor into the attacker's
+	// account. The ceremony only counts from the browser that asked for it.
+	public function test_a_ceremony_spent_without_the_browser_that_asked_for_it_signs_nobody_in(): void {
+		$signed = $this->signed();
+		unset( $_COOKIE['sigil_passwordless'] );
+
+		$this->assertWPError( $this->sign_on( $signed ) );
+	}
+
+	public function test_a_ceremony_spent_from_another_browser_signs_nobody_in(): void {
+		$signed                         = $this->signed();
+		$_COOKIE['sigil_passwordless'] = bin2hex( random_bytes( 32 ) );
+
+		$this->assertWPError( $this->sign_on( $signed ) );
+	}
+
+	public function test_switched_off_no_ceremony_is_minted(): void {
+		Sigil\Policy::update( array( 'passwordless' => false ) );
+
+		$this->assertNull( Sigil\Passwordless::instance()->mint() );
+	}
+
+	public function test_a_browser_keeps_one_binding_across_ceremonies(): void {
+		$first  = $this->signed();
+		$cookie = $_COOKIE['sigil_passwordless'];
+		$this->signed();
+
+		$this->assertSame( $cookie, $_COOKIE['sigil_passwordless'] );
+		$this->assertInstanceOf( WP_User::class, $this->sign_on( $first ), 'an earlier tab still works' );
+	}
+
+	public function test_a_post_from_another_origin_is_refused(): void {
+		$signed                 = $this->signed();
+		$_SERVER['HTTP_ORIGIN'] = 'https://attacker.example';
+
+		$this->assertWPError( $this->sign_on( $signed ) );
+	}
+
+	public function test_a_post_from_the_sites_own_origin_is_accepted(): void {
+		$signed                 = $this->signed();
+		$parts                  = wp_parse_url( home_url() );
+		$_SERVER['HTTP_ORIGIN'] = $parts['scheme'] . '://' . $parts['host'] . ( isset( $parts['port'] ) ? ':' . $parts['port'] : '' );
+
+		$this->assertInstanceOf( WP_User::class, $this->sign_on( $signed ) );
+	}
+
+	// Someone with a passkey account of their own could otherwise wipe the
+	// address count between guesses at other accounts.
+	public function test_signing_in_with_a_passkey_leaves_the_addresses_failures_counted(): void {
+		$previous               = $_SERVER['REMOTE_ADDR'] ?? null;
+		$_SERVER['REMOTE_ADDR'] = '203.0.113.44';
+		$ip                     = Sigil\Challenge::ip_rate_key();
+
+		$victim = self::factory()->user->create_and_get();
+		( new Sigil\Providers\Backup_Codes() )->generate( (int) $victim->ID );
+		for ( $i = 0; $i < 3; $i++ ) {
+			Sigil\Challenge::complete( Sigil\Challenge::start( $victim, false ), 'backup', array( 'code' => 'wrong' ) );
+		}
+
+		$this->assertInstanceOf( WP_User::class, $this->sign_on( $this->signed() ) );
+		$after = Sigil\Rate_Limit::count( $ip );
+		$next  = Sigil\Rate_Limit::reserve( $ip );
+
+		$_SERVER['REMOTE_ADDR'] = $previous;
+
+		$this->assertSame( 3, $after );
+		$this->assertSame( 4, $next );
+	}
+
+	public function test_passing_the_challenge_leaves_the_addresses_failures_counted(): void {
+		$previous               = $_SERVER['REMOTE_ADDR'] ?? null;
+		$_SERVER['REMOTE_ADDR'] = '203.0.113.45';
+		$ip                     = Sigil\Challenge::ip_rate_key();
+
+		$victim = self::factory()->user->create_and_get();
+		( new Sigil\Providers\Backup_Codes() )->generate( (int) $victim->ID );
+		for ( $i = 0; $i < 3; $i++ ) {
+			Sigil\Challenge::complete( Sigil\Challenge::start( $victim, false ), 'backup', array( 'code' => 'wrong' ) );
+		}
+
+		$own   = self::factory()->user->create_and_get();
+		$codes = ( new Sigil\Providers\Backup_Codes() )->generate( (int) $own->ID );
+		$done  = Sigil\Challenge::complete( Sigil\Challenge::start( $own, false ), 'backup', array( 'code' => $codes[0] ) );
+		$after = Sigil\Rate_Limit::count( $ip );
+
+		$_SERVER['REMOTE_ADDR'] = $previous;
+
+		$this->assertTrue( $done );
+		$this->assertSame( 3, $after );
 	}
 }
