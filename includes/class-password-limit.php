@@ -17,14 +17,17 @@ defined( 'ABSPATH' ) || exit;
  * A refusal looks the same whether the password was right or wrong, and
  * whether the account exists or not, so nothing is learned from it.
  *
- * The account bucket is keyed on the account the typed name reaches, found
- * the way core's own password check finds it. MySQL matches a login however
- * it is cased, accented, padded or written in full-width letters, so keying
- * on the text would give every spelling its own allowance. A login and an
- * email are still counted apart: one bucket for both would let anyone check
- * whether a username and an address belong together by spending one and
- * watching the other close. The cost is that an account gets the allowance
- * once under each.
+ * The account bucket is keyed on the name as the database compares it. MySQL
+ * matches a login however it is cased, accented, padded or written in
+ * full-width letters, and so does core's password check, so keying on the
+ * typed text would give every spelling its own allowance. Keying on the
+ * collation's own sort weight merges exactly the spellings the database
+ * merges, whether or not an account by that name exists, so locking a name
+ * and trying a variant says nothing about which names are real. A login and
+ * an email are still counted apart: one bucket for both would let anyone
+ * check whether a username and an address belong together by spending one
+ * and watching the other close. The cost is that an account gets the
+ * allowance once under each.
  *
  * Only time ever reopens a bucket, so nobody can lock an account for good, and
  * a passkey sign-in sends no password and is never counted.
@@ -39,6 +42,17 @@ final class Password_Limit {
 	private const CREDENTIAL_ERRORS = array( 'invalid_username', 'invalid_email', 'incorrect_password' );
 
 	private static ?Password_Limit $instance = null;
+
+	/**
+	 * The collation of each users column, read once. Empty when it cannot be
+	 * read or weighed, which sends account_key() to the normaliser.
+	 *
+	 * @var array<string, string>|null
+	 */
+	private static ?array $collations = null;
+
+	/** @var array<string, string> */
+	private static array $weights = array();
 
 	public static function instance(): Password_Limit {
 		if ( null === self::$instance ) {
@@ -167,10 +181,10 @@ final class Password_Limit {
 	 */
 	public static function unlock( \WP_User $user, string $ip = '', bool $challenge = false ): array {
 		$buckets = array(
-			'password: ' . strtolower( (string) $user->user_login ) => self::key_for( 'l:' . strtolower( (string) $user->user_login ) ),
+			'password: ' . strtolower( (string) $user->user_login ) => self::account_key( (string) $user->user_login ),
 		);
 		if ( '' !== (string) $user->user_email ) {
-			$buckets[ 'password: ' . strtolower( (string) $user->user_email ) ] = self::key_for( 'e:' . strtolower( (string) $user->user_email ) );
+			$buckets[ 'password: ' . strtolower( (string) $user->user_email ) ] = self::account_key( (string) $user->user_email );
 		}
 
 		if ( '' !== $ip ) {
@@ -199,28 +213,95 @@ final class Password_Limit {
 	/**
 	 * The bucket a typed name counts against.
 	 *
-	 * A name that reaches an account by login counts against that account's
-	 * stored login, and one that reaches it by email against its stored email.
-	 * A name that reaches nobody is normalised, so spellings of a name that
-	 * does not exist behave like spellings of one that does.
+	 * An email counts against user_email's collation and anything else
+	 * against user_login's, the columns core looks the name up in. Nothing
+	 * here asks whether an account exists.
 	 */
 	public static function account_key( string $typed ): string {
-		$login = sanitize_user( $typed );
-		$user  = '' === $login ? false : get_user_by( 'login', $login );
-		if ( $user instanceof \WP_User ) {
-			return self::key_for( 'l:' . strtolower( (string) $user->user_login ) );
+		$name   = sanitize_user( $typed );
+		$column = is_email( $name ) ? 'user_email' : 'user_login';
+		$weight = self::weight( $name, $column );
+
+		$identity = '' === $weight ? self::normalise( $typed ) : $weight;
+
+		return self::key_for( ( 'user_email' === $column ? 'e:' : 'l:' ) . $identity );
+	}
+
+	/**
+	 * The collation's sort weight for the name, hex-encoded: equal exactly
+	 * when the database would call the two names equal.
+	 *
+	 * A PAD SPACE collation also ignores trailing characters that sort as a
+	 * space when it compares, which WEIGHT_STRING() keeps for anything but an
+	 * ASCII space, so those are dropped first.
+	 *
+	 * Empty when the database has no WEIGHT_STRING() (SQLite, or a server
+	 * that refuses the query), and the caller falls back to the normaliser,
+	 * which merges the common spellings but not every one the collation does.
+	 */
+	private static function weight( string $name, string $column ): string {
+		$collation = self::collation( $column );
+		if ( '' === $collation || '' === $name ) {
+			return '';
 		}
 
-		if ( is_email( $typed ) ) {
-			$user = get_user_by( 'email', $typed );
-			if ( $user instanceof \WP_User ) {
-				return self::key_for( 'e:' . strtolower( (string) $user->user_email ) );
+		if ( false === strpos( $collation, '_0900_' ) && false === strpos( $collation, 'nopad' ) ) {
+			$trimmed = preg_replace( '/\p{Zs}+$/u', '', $name );
+			$name    = is_string( $trimmed ) ? $trimmed : $name;
+		}
+
+		$memo = $collation . "\0" . $name;
+		if ( isset( self::$weights[ $memo ] ) ) {
+			return self::$weights[ $memo ];
+		}
+
+		global $wpdb;
+
+		$charset = strtok( $collation, '_' );
+		$prior   = $wpdb->suppress_errors( true );
+		// The charset and collation come from the server's own column
+		// definition and are checked to be plain identifiers in collation().
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$weight = $wpdb->get_var( $wpdb->prepare( "SELECT HEX(WEIGHT_STRING(CONVERT(%s USING {$charset}) COLLATE {$collation}))", $name ) );
+		$wpdb->suppress_errors( $prior );
+
+		$weight = is_string( $weight ) ? $weight : '';
+		if ( count( self::$weights ) < 256 ) {
+			self::$weights[ $memo ] = $weight;
+		}
+
+		return $weight;
+	}
+
+	private static function collation( string $column ): string {
+		if ( null === self::$collations ) {
+			global $wpdb;
+
+			self::$collations = array(
+				'user_login' => '',
+				'user_email' => '',
+			);
+
+			$prior = $wpdb->suppress_errors( true );
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
+			$columns = $wpdb->get_results( "SHOW FULL COLUMNS FROM {$wpdb->users}" );
+			$wpdb->suppress_errors( $prior );
+
+			foreach ( is_array( $columns ) ? $columns : array() as $row ) {
+				$field     = isset( $row->Field ) ? (string) $row->Field : ''; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+				$collation = isset( $row->Collation ) ? (string) $row->Collation : ''; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+				if ( isset( self::$collations[ $field ] ) && preg_match( '/^[A-Za-z0-9]+_[A-Za-z0-9_]+$/', $collation ) ) {
+					self::$collations[ $field ] = $collation;
+				}
 			}
 		}
 
-		return self::key_for( 'n:' . self::normalise( $typed ) );
+		return self::$collations[ $column ] ?? '';
 	}
 
+	/**
+	 * Only used where the database cannot weigh a name.
+	 */
 	private static function normalise( string $typed ): string {
 		$name = sanitize_user( $typed );
 		if ( class_exists( 'Normalizer' ) ) {
