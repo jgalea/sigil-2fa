@@ -4,7 +4,7 @@ Tags: two-factor, 2fa, passkeys, authentication, security
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.5.0
+Stable tag: 0.5.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -123,6 +123,9 @@ Yes. Sigil imports from Two Factor (including passkeys from the WebAuthn Provide
 Yes. Settings → Sigil lets you pick exactly which roles are required, and set a grace period so people are prompted to enrol rather than locked out immediately.
 
 == Changelog ==
+
+= 0.5.1 =
+* Fixed: after an update, registering a passkey from the front-end page could fail until an administrator opened the dashboard.
 
 = 0.5.0 =
 * New: sign in with a passkey and no password.
