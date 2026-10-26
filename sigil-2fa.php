@@ -21,7 +21,6 @@ define( 'SIGIL_VERSION', '0.4.0' );
 define( 'SIGIL_FILE', __FILE__ );
 define( 'SIGIL_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SIGIL_URL', plugin_dir_url( __FILE__ ) );
-define( 'SIGIL_PRO', file_exists( __DIR__ . '/pro/loader.php' ) );
 
 require_once SIGIL_DIR . 'includes/class-plugin.php';
 

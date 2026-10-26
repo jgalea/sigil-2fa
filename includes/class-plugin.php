@@ -86,10 +86,9 @@ final class Plugin {
 		// it on, which cannot be known until every plugin has loaded.
 		WooCommerce::boot();
 
-		// Pro add-on, when present. The free build strips pro/ entirely, so this
-		// include only fires in the Pro distribution.
-		if ( SIGIL_PRO ) {
-			require_once SIGIL_DIR . 'pro/loader.php';
-		}
+		// Add-ons wait for this rather than guessing when the free plugin is ready.
+		// Its absence is also how an add-on tells that the free plugin is missing
+		// or too old to extend.
+		do_action( 'sigil_loaded' );
 	}
 }
