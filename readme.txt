@@ -125,25 +125,15 @@ Yes. Settings → Sigil lets you pick exactly which roles are required, and set 
 == Changelog ==
 
 = 0.5.0 =
-* New: sign in with a passkey and no password, from a button on the login screen or the browser's passkey suggestions.
-* New: a setup wizard, and Sigil won't let you require 2FA for your own role before you've set up a method.
-* New: remember this device, the WooCommerce My Account tab and the email-code fallback are now in the free plugin.
-* New: limits on wrong passwords per account and per IP address, with `wp sigil unlock` to reopen an account.
-* New: import passkeys, authenticator apps and backup codes from other two-factor plugins (see the FAQ).
-* New: password managers can fill authenticator codes, and pasted codes with spaces or dashes work.
-* New: adding, replacing or removing a sign-in method asks you to confirm it's you if you signed in more than 10 minutes ago, and adding a passkey always asks.
-* New: changing your own password or email asks you to confirm it's you if you signed in more than 10 minutes ago.
-* New: "Forget trusted devices" on your two-factor screen.
-* Improved: the change email now names the passkey that was added or removed, and mentions new backup codes and a replaced authenticator.
-* Improved: a passkey an administrator registers for someone else works only after their password, never on its own.
-* Improved: the two-factor screen works from the keyboard alone, and wrong-code errors are announced to screen readers.
-* Fixed: changing your password from a front-end form, such as WooCommerce's account page, no longer signs you out.
-* Fixed: the two-factor section on the profile screen could stop the profile from saving. It's now a summary with a link to the two-factor page.
-* Fixed: registering a passkey now sends the change email and forgets trusted devices, like every other method.
-* Fixed: a remembered device gets past a password lockout, so someone guessing can't keep you out.
-* Fixed: anonymous requests for passkey sign-in options are limited per IP address.
-* Fixed: deleting the plugin on multisite removes all its network settings.
-* Sigil Pro is now a separate add-on. If you used the combined Pro build, install the new Sigil Pro add-on alongside Sigil; your settings carry over.
+* New: sign in with a passkey and no password.
+* New: a setup wizard, and you can't require 2FA for your own role before you've set up a method.
+* New: remember this device, the WooCommerce My Account tab and the email-code fallback are now free.
+* New: limits on wrong passwords, with `wp sigil unlock` to reopen an account.
+* New: import from other two-factor plugins (see the FAQ).
+* New: changing a sign-in method, your password or your email asks you to confirm it's you.
+* Improved: password managers can fill authenticator codes, and the two-factor screen works from the keyboard.
+* Fixed: front-end password changes no longer sign you out, and the profile screen saves again.
+* Sigil Pro is now a separate add-on; install it alongside Sigil and your settings carry over.
 
 = 0.4.1 =
 * Security: a password alone no longer creates a session before the second step. Please update.
