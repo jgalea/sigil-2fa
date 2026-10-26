@@ -175,22 +175,13 @@ final class Passwordless {
 	}
 
 	/**
-	 * By address, with an IPv6 address counted by its /64, which is what one
-	 * subscriber is usually given. With no address at all every such request
-	 * shares one allowance rather than having none.
+	 * By address, counted the way every other limit counts it. With no address
+	 * at all every such request shares one allowance rather than having none.
 	 */
 	private static function mint_key(): string {
-		$ip = Request::client_ip();
-		if ( '' === $ip ) {
-			return 'plm:none';
-		}
+		$ip = Challenge::ip_rate_key();
 
-		$packed = inet_pton( $ip );
-		if ( is_string( $packed ) && 16 === strlen( $packed ) ) {
-			$ip = bin2hex( substr( $packed, 0, 8 ) ) . '::/64';
-		}
-
-		return 'plm:' . Challenge::ip_rate_key_for( $ip );
+		return '' === $ip ? 'plm:none' : 'plm:' . $ip;
 	}
 
 	private static function binding_from_cookie(): string {

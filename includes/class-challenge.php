@@ -378,7 +378,7 @@ final class Challenge {
 	}
 
 	public static function ip_rate_key_for( string $ip ): string {
-		return '' === $ip ? '' : 'ip:' . hash( 'sha256', $ip );
+		return '' === $ip ? '' : 'ip:' . hash( 'sha256', Request::bucket_address( $ip ) );
 	}
 
 	private static function sanitize_redirect( string $redirect_to ): string {
