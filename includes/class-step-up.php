@@ -28,6 +28,12 @@ defined( 'ABSPATH' ) || exit;
  * up a first method with no proof at all, is not enough: adding or replacing
  * one needs a proof given for the purpose, and an account with nothing else
  * gives its password.
+ *
+ * A factor only proves anything if it was there before this session last
+ * authenticated, and was not set up by this session. Otherwise a stolen
+ * session adds an authenticator, which may need no proof, and offers its
+ * codes as proof. And a factor's proof covers the change it was given for:
+ * once a method changes without the password, it is spent.
  */
 final class Step_Up {
 
@@ -38,6 +44,15 @@ final class Step_Up {
 
 	// When this session set up a first method, which proved nothing.
 	private const SETUP_KEY = 'sigil_setup';
+
+	// When this session last proved it with the password.
+	private const PASSWORD_KEY = 'sigil_password_at';
+
+	/**
+	 * When each factor was set up and by which session: 'totp', and
+	 * 'passkey:<row id>' for each passkey.
+	 */
+	public const ORIGIN_META = '_sigil_factor_origin';
 
 	/**
 	 * Proof given during this request, for requests with no session to keep
@@ -51,6 +66,9 @@ final class Step_Up {
 
 	/** @var array<string, true> */
 	private static array $set_up = array();
+
+	/** @var array<string, true> */
+	private static array $by_password = array();
 
 	/**
 	 * Whether a change to this account's methods by the current user needs
@@ -117,9 +135,80 @@ final class Step_Up {
 	/**
 	 * Note fresh proof for the current session.
 	 */
-	public static function record( int $user_id ): void {
+	public static function record( int $user_id, bool $password = false ): void {
 		self::$proven[ self::request_key( $user_id ) ] = true;
 		self::stamp( $user_id, self::SESSION_KEY );
+
+		if ( $password ) {
+			self::$by_password[ self::request_key( $user_id ) ] = true;
+			self::stamp( $user_id, self::PASSWORD_KEY );
+		}
+	}
+
+	/**
+	 * Note that a factor was set up or replaced, and spend a proof that was
+	 * not the password.
+	 *
+	 * @param list<string> $factors Keys as in ORIGIN_META.
+	 */
+	public static function enrolled( int $user_id, array $factors ): void {
+		$origins = self::origins( $user_id );
+		foreach ( $factors as $factor ) {
+			$origins[ $factor ] = array(
+				'at'      => time(),
+				'session' => hash( 'sha256', wp_get_session_token() ),
+			);
+		}
+		update_user_meta( $user_id, self::ORIGIN_META, $origins );
+
+		if ( (int) get_current_user_id() !== $user_id || self::proven_by_password( $user_id ) ) {
+			return;
+		}
+
+		$key = self::request_key( $user_id );
+		unset( self::$proven[ $key ] );
+		self::stamp( $user_id, self::SESSION_KEY, 0 );
+	}
+
+	private static function proven_by_password( int $user_id ): bool {
+		if ( isset( self::$by_password[ self::request_key( $user_id ) ] ) ) {
+			return true;
+		}
+
+		$session = self::session( $user_id );
+
+		return null !== $session && self::fresh( (int) ( $session[ self::PASSWORD_KEY ] ?? 0 ) );
+	}
+
+	/**
+	 * Whether a factor can vouch for this session: set up no later than the
+	 * session last authenticated, by its sign-in or its password, and not by
+	 * this session. A factor with no record predates the record keeping.
+	 */
+	private static function vouches( int $user_id, string $factor ): bool {
+		$origin = self::origins( $user_id )[ $factor ] ?? null;
+		if ( ! is_array( $origin ) ) {
+			return true;
+		}
+
+		$token = wp_get_session_token();
+		if ( '' !== $token && hash_equals( (string) ( $origin['session'] ?? '' ), hash( 'sha256', $token ) ) ) {
+			return false;
+		}
+
+		$session = self::session( $user_id );
+		$authed  = null === $session ? 0 : max( (int) ( $session['login'] ?? 0 ), (int) ( $session[ self::PASSWORD_KEY ] ?? 0 ) );
+
+		return $authed > 0 && (int) ( $origin['at'] ?? PHP_INT_MAX ) <= $authed;
+	}
+
+	/**
+	 * @return array<string, array{at: int, session: string}>
+	 */
+	private static function origins( int $user_id ): array {
+		$raw = get_user_meta( $user_id, self::ORIGIN_META, true );
+
+		return is_array( $raw ) ? $raw : array();
 	}
 
 	/**
@@ -137,7 +226,7 @@ final class Step_Up {
 		return $at > 0 && time() - $at <= self::WINDOW;
 	}
 
-	private static function stamp( int $user_id, string $field ): void {
+	private static function stamp( int $user_id, string $field, ?int $at = null ): void {
 		$token = wp_get_session_token();
 		if ( '' === $token ) {
 			return;
@@ -149,7 +238,7 @@ final class Step_Up {
 			return;
 		}
 
-		$session[ $field ] = time();
+		$session[ $field ] = $at ?? time();
 		$manager->update( $token, $session );
 	}
 
@@ -180,12 +269,13 @@ final class Step_Up {
 			);
 		}
 
-		if ( ! self::check( $user, $input ) ) {
+		$by = self::check( $user, $input );
+		if ( '' === $by ) {
 			return self::failed();
 		}
 
 		Rate_Limit::clear( $key );
-		self::record( $user_id );
+		self::record( $user_id, 'password' === $by );
 
 		return true;
 	}
@@ -228,27 +318,47 @@ final class Step_Up {
 
 	/**
 	 * @param array<string, mixed> $input
+	 * @return string What proved it ('password', 'totp', 'passkey'), or empty.
 	 */
-	private static function check( \WP_User $user, array $input ): bool {
+	private static function check( \WP_User $user, array $input ): string {
+		$user_id  = (int) $user->ID;
 		$password = isset( $input['password'] ) && is_string( $input['password'] ) ? $input['password'] : '';
 		if ( '' !== $password ) {
-			$checked = wp_check_password( $password, $user->user_pass, (int) $user->ID )
+			$checked = wp_check_password( $password, $user->user_pass, $user_id )
 				? $user
 				: new \WP_Error( 'incorrect_password', '' );
 
-			return Password_Limit::instance()->limit( $checked, (string) $user->user_login, $password ) instanceof \WP_User;
+			return Password_Limit::instance()->limit( $checked, (string) $user->user_login, $password ) instanceof \WP_User ? 'password' : '';
 		}
 
-		foreach ( self::factors( (int) $user->ID ) as $provider ) {
+		foreach ( self::factors( $user_id ) as $provider ) {
 			if ( 'totp' === $provider->id() && isset( $input['code'] ) && is_string( $input['code'] ) && '' !== $input['code'] ) {
-				return $provider->validate( (int) $user->ID, array( 'code' => $input['code'] ) );
+				return self::vouches( $user_id, 'totp' ) && $provider->validate( $user_id, array( 'code' => $input['code'] ) ) ? 'totp' : '';
 			}
 			if ( 'passkey' === $provider->id() && isset( $input['passkey_assertion'] ) && is_string( $input['passkey_assertion'] ) && '' !== $input['passkey_assertion'] ) {
-				return $provider->validate( (int) $user->ID, array( 'passkey_assertion' => $input['passkey_assertion'] ) );
+				$row = self::asserted_credential( $input['passkey_assertion'] );
+				if ( null === $row || (int) $row->user_id !== $user_id || ! self::vouches( $user_id, 'passkey:' . (int) $row->id ) ) {
+					return '';
+				}
+
+				return $provider->validate( $user_id, array( 'passkey_assertion' => $input['passkey_assertion'] ) ) ? 'passkey' : '';
 			}
 		}
 
-		return false;
+		return '';
+	}
+
+	/**
+	 * The stored passkey an assertion names, before it is verified. Validation
+	 * then checks the signature against it.
+	 */
+	private static function asserted_credential( string $json ): ?object {
+		$assertion = json_decode( $json, true );
+		$id        = is_array( $assertion ) && isset( $assertion['id'] ) && is_string( $assertion['id'] ) ? $assertion['id'] : '';
+		$b64       = strtr( $id, '-_', '+/' );
+		$raw       = base64_decode( $b64 . str_repeat( '=', ( 4 - strlen( $b64 ) % 4 ) % 4 ), true );
+
+		return is_string( $raw ) && '' !== $raw ? Credentials::by_credential_id( $raw ) : null;
 	}
 
 	private static function failed(): \WP_Error {

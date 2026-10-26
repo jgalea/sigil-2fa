@@ -54,6 +54,11 @@ test('an authenticator code confirms too', async ({ page }) => {
 	await login(page);
 	const secret = await enrolTotp(page);
 	ageSessions();
+	// Set up in an earlier session, before this one signed in. One set up by
+	// this session proves nothing.
+	wpEval(
+		"$id = get_user_by( 'login', 'admin' )->ID; update_user_meta( $id, '_sigil_factor_origin', array( 'totp' => array( 'at' => time() - 2 * HOUR_IN_SECONDS, 'session' => '' ) ) );"
+	);
 
 	await page.goto('/wp-admin/users.php?page=sigil-2fa-setup&method=totp');
 	await page.fill('#sigil-step-up-code', totp(secret));
@@ -102,4 +107,16 @@ test('the wizard confirms on its own screen before new backup codes', async ({ p
 
 	await expect(page.locator('.sigil-step-up-form')).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Generate new backup codes' })).toBeVisible();
+});
+
+test('an authenticator set up in this session does not confirm', async ({ page }) => {
+	await login(page);
+	const secret = await enrolTotp(page);
+	ageSessions();
+
+	await page.goto('/wp-admin/users.php?page=sigil-2fa-setup&method=totp');
+	await page.fill('#sigil-step-up-code', totp(secret));
+	await page.locator('.sigil-enrol__step-up button[type="submit"]').click();
+	await expect(page.locator('.notice-error')).toBeVisible();
+	await expect(page.locator('.sigil-enrol__step-up')).toBeVisible();
 });

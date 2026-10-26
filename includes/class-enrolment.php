@@ -235,6 +235,8 @@ final class Enrolment {
 			);
 		}
 
+		$passkeys_before = 'passkey' === $provider_id ? self::credential_ids( $user_id ) : array();
+
 		$result = $provider->handle_enrol( $user_id, $input );
 
 		if ( is_wp_error( $result ) ) {
@@ -265,7 +267,29 @@ final class Enrolment {
 			Step_Up::record_setup( $user_id );
 		}
 
+		$factors = array();
+		if ( 'totp' === $provider_id ) {
+			$factors[] = 'totp';
+		} elseif ( 'passkey' === $provider_id ) {
+			foreach ( array_diff( self::credential_ids( $user_id ), $passkeys_before ) as $id ) {
+				$factors[] = 'passkey:' . $id;
+			}
+		}
+		Step_Up::enrolled( $user_id, $factors );
+
 		return true;
+	}
+
+	/**
+	 * @return list<int>
+	 */
+	private static function credential_ids( int $user_id ): array {
+		return array_map(
+			static function ( $row ): int {
+				return (int) $row->id;
+			},
+			Credentials::for_user( $user_id )
+		);
 	}
 
 	/**
@@ -447,6 +471,8 @@ final class Enrolment {
 		$backup->generate( $user_id );
 		/** This action is documented in includes/class-enrolment.php */
 		do_action( 'sigil_methods_changed', $user_id );
+
+		Step_Up::enrolled( $user_id, array() );
 
 		return true;
 	}

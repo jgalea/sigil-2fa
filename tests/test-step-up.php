@@ -383,4 +383,74 @@ class Test_Step_Up extends WP_UnitTestCase {
 	private function forget_step_up_attempts( int $user ): void {
 		\Sigil\Rate_Limit::clear( 'su:' . $user );
 	}
+
+	private function enrol_totp_through_the_screen( int $user ): void {
+		$result = Enrolment::instance()->complete_method(
+			$user,
+			'totp',
+			array(
+				'secret' => self::SECRET,
+				'code'   => \Sigil\Providers\TOTP::code_at( self::SECRET, time() ),
+			)
+		);
+		$this->assertTrue( $result );
+	}
+
+	// A stolen session on an account with nothing set up can add an
+	// authenticator without proof. A code from that authenticator proves only
+	// that the thief holds it.
+	public function test_an_authenticator_set_up_in_this_session_does_not_prove_it_for_a_passkey(): void {
+		$this->skip_without_passkeys();
+		$user = $this->user();
+		$this->sign_in( $user, self::STALE );
+		$this->enrol_totp_through_the_screen( $user );
+
+		$this->assertWPError( Step_Up::prove( $user, array( 'code' => \Sigil\Providers\TOTP::code_at( self::SECRET, time() ) ) ) );
+		$this->assertWPError( Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) ) );
+
+		// The password still does.
+		$this->assertTrue( Step_Up::prove( $user, array( 'password' => self::PASS ) ) );
+		$this->assertTrue( Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) ) );
+	}
+
+	public function test_an_authenticator_added_on_a_recent_sign_in_does_not_prove_it_either(): void {
+		$this->skip_without_passkeys();
+		$user = $this->user();
+		Store::set_method( $user, 'email', array( 'enrolled_at' => time() - DAY_IN_SECONDS ) );
+		$this->sign_in( $user, 2 * MINUTE_IN_SECONDS );
+		$this->enrol_totp_through_the_screen( $user );
+
+		$this->assertWPError( Step_Up::prove( $user, array( 'code' => \Sigil\Providers\TOTP::code_at( self::SECRET, time() ) ) ) );
+		$this->assertWPError( Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) ) );
+	}
+
+	public function test_an_authenticator_from_an_earlier_session_proves_it(): void {
+		$this->skip_without_passkeys();
+		$user = $this->user();
+		$this->sign_in( $user );
+		$this->enrol_totp_through_the_screen( $user );
+
+		// Signed in again later, with the password and that authenticator.
+		$this->sign_in( $user );
+
+		$this->assertTrue( Step_Up::prove( $user, array( 'code' => \Sigil\Providers\TOTP::code_at( self::SECRET, time() ) ) ) );
+		$this->assertTrue( Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) ) );
+	}
+
+	// A factor's proof covers the one change it was given for. The password
+	// is the stronger proof and lasts the window.
+	public function test_a_factor_proof_is_spent_by_the_change_it_allowed(): void {
+		$this->skip_without_passkeys();
+		$user = $this->user();
+		$this->with_totp( $user );
+		$this->sign_in( $user, self::STALE );
+
+		$this->assertTrue( Step_Up::prove( $user, array( 'code' => \Sigil\Providers\TOTP::code_at( self::SECRET, time() ) ) ) );
+		$this->assertTrue( Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) ) );
+		$this->assertFalse( Step_Up::proven( $user ) );
+
+		$this->assertTrue( Step_Up::prove( $user, array( 'password' => self::PASS ) ) );
+		$this->assertTrue( Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) ) );
+		$this->assertTrue( Step_Up::proven( $user ) );
+	}
 }
