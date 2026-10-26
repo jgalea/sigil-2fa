@@ -65,3 +65,20 @@ test("an administrator resets someone else's two-factor from their profile", asy
 
 	wp('user', 'delete', id, '--yes');
 });
+
+test('a session that signed in a while ago confirms before setting a new password', async ({ page }) => {
+	await login(page);
+	await enrolTotp(page);
+	wp(
+		'eval',
+		"$id = get_user_by( 'login', 'admin' )->ID; $s = get_user_meta( $id, 'session_tokens', true ); foreach ( $s as $k => $v ) { $s[ $k ]['login'] = time() - HOUR_IN_SECONDS; unset( $s[ $k ]['sigil_step_up'], $s[ $k ]['sigil_setup'] ); } update_user_meta( $id, 'session_tokens', $s );"
+	);
+
+	await page.goto('/wp-admin/profile.php');
+	await page.locator('.wp-generate-pw').click();
+	await page.fill('#pass1', 'a-new-password-1234!');
+	await page.locator('#submit').click();
+
+	await expect(page.getByText(/confirm it is you before changing your password/i)).toBeVisible();
+	expect(wp('eval', "echo wp_check_password( 'password', get_user_by( 'login', 'admin' )->user_pass ) ? 'old' : 'changed';")).toBe('old');
+});

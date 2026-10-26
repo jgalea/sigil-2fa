@@ -194,6 +194,19 @@ final class Step_Up {
 		self::stamp( $user_id, self::SESSION_KEY, 0 );
 	}
 
+	/**
+	 * Note a new password. A session that set it, or that signed in before it
+	 * was set, has not shown it knows the owner's: it may have chosen it.
+	 */
+	public static function password_changed( int $user_id ): void {
+		$origins             = self::origins( $user_id );
+		$origins['password'] = array(
+			'at'      => time(),
+			'session' => hash( 'sha256', wp_get_session_token() ),
+		);
+		update_user_meta( $user_id, self::ORIGIN_META, $origins );
+	}
+
 	private static function proven_by_password( int $user_id ): bool {
 		if ( isset( self::$by_password[ self::request_key( $user_id ) ] ) ) {
 			return true;
@@ -226,6 +239,28 @@ final class Step_Up {
 		$authed  = null === $session ? 0 : max( (int) ( $session['login'] ?? 0 ), (int) ( $session[ self::PASSWORD_KEY ] ?? 0 ) );
 
 		return $authed > 0 && (int) ( $origin['at'] ?? PHP_INT_MAX ) < $authed;
+	}
+
+	/**
+	 * Whether the password can vouch: not set by this session, and set before
+	 * the session signed in. Only the sign-in counts here, since a password
+	 * proof is the thing being decided.
+	 */
+	private static function password_vouches( int $user_id ): bool {
+		$origin = self::origins( $user_id )['password'] ?? null;
+		if ( ! is_array( $origin ) ) {
+			return true;
+		}
+
+		$token = wp_get_session_token();
+		if ( '' !== $token && hash_equals( (string) ( $origin['session'] ?? '' ), hash( 'sha256', $token ) ) ) {
+			return false;
+		}
+
+		$session = self::session( $user_id );
+		$login   = null === $session ? 0 : (int) ( $session['login'] ?? 0 );
+
+		return $login > 0 && (int) ( $origin['at'] ?? PHP_INT_MAX ) < $login;
 	}
 
 	/**
@@ -354,7 +389,11 @@ final class Step_Up {
 				? $user
 				: new \WP_Error( 'incorrect_password', '' );
 
-			return Password_Limit::instance()->limit( $checked, (string) $user->user_login, $password ) instanceof \WP_User ? 'password' : '';
+			if ( ! Password_Limit::instance()->limit( $checked, (string) $user->user_login, $password ) instanceof \WP_User ) {
+				return '';
+			}
+
+			return self::password_vouches( $user_id ) ? 'password' : '';
 		}
 
 		foreach ( self::factors( $user_id ) as $provider ) {

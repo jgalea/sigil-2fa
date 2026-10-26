@@ -58,6 +58,8 @@ final class Plugin {
 		Password_Limit::instance();
 
 		require_once SIGIL_DIR . 'includes/class-step-up.php';
+		require_once SIGIL_DIR . 'includes/class-credential-changes.php';
+		Credential_Changes::instance();
 		require_once SIGIL_DIR . 'includes/class-enrolment.php';
 		Enrolment::instance();
 
