@@ -159,10 +159,13 @@ final class Import {
 				Store::set_method( $user_id, $provider_id, $data );
 			}
 
-			$added = 0;
+			$added   = 0;
+			$factors = isset( $writes['totp'] ) ? array( 'totp' ) : array();
 			foreach ( $passkeys as $row ) {
-				if ( Credentials::add( $user_id, $row['credential_id'], $row['public_key'], $row['sign_count'], $row['label'], $row['transports'], $row['user_handle'], $row['discoverable'] ) > 0 ) {
+				$id = Credentials::add( $user_id, $row['credential_id'], $row['public_key'], $row['sign_count'], $row['label'], $row['transports'], $row['user_handle'], $row['discoverable'] );
+				if ( $id > 0 ) {
 					++$added;
+					$factors[] = 'passkey:' . $id;
 				}
 			}
 			if ( $added > 0 && ! isset( Store::methods( $user_id )['passkey'] ) ) {
@@ -189,6 +192,10 @@ final class Import {
 
 			/** This action is documented in includes/class-enrolment.php */
 			do_action( 'sigil_methods_changed', $user_id );
+
+			// Dated now, so they vouch only for sessions that sign in after the
+			// import, not for ones already open.
+			Step_Up::enrolled( $user_id, $factors );
 		}
 
 		if ( ! $dry_run && '' !== $result['preferred'] && '' === Providers::preference( $user_id ) ) {

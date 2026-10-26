@@ -545,4 +545,41 @@ class Test_Step_Up extends WP_UnitTestCase {
 
 		$this->assertWPError( Step_Up::prove( $user, array( 'passkey_assertion' => wp_json_encode( $assertion ) ) ) );
 	}
+
+
+	// Imported factors arrive while sessions are already open, so they only
+	// vouch for sessions that sign in after the import.
+	public function test_an_imported_authenticator_does_not_prove_it_for_a_session_already_open(): void {
+		$donor = $this->user();
+		$this->with_totp( $donor );
+		$data = Store::methods( $donor )['totp'];
+
+		$user = $this->user();
+		$this->sign_in( $user, self::STALE );
+		\Sigil\Import::apply( \Sigil\Import::blank_result( $user ), $user, array( 'totp' => $data ), array(), false );
+
+		$this->assertArrayHasKey( 'totp', (array) get_user_meta( $user, Step_Up::ORIGIN_META, true ) );
+		$this->assertWPError( Step_Up::prove( $user, array( 'code' => \Sigil\Providers\TOTP::code_at( self::SECRET, time() ) ) ) );
+	}
+
+
+	public function test_imported_passkeys_are_recorded_when_they_arrive(): void {
+		$user   = $this->user();
+		$passes = did_action( 'sigil_methods_changed' );
+		$row    = array(
+			'credential_id' => random_bytes( 32 ),
+			'public_key'    => openssl_pkey_get_details( self::new_key() )['key'],
+			'sign_count'    => 0,
+			'label'         => 'Imported',
+			'transports'    => '',
+			'user_handle'   => '',
+			'discoverable'  => null,
+		);
+
+		\Sigil\Import::apply( \Sigil\Import::blank_result( $user ), $user, array(), array( $row ), false );
+
+		$id = (int) \Sigil\Credentials::for_user( $user )[0]->id;
+		$this->assertArrayHasKey( 'passkey:' . $id, (array) get_user_meta( $user, Step_Up::ORIGIN_META, true ) );
+		$this->assertSame( $passes + 1, did_action( 'sigil_methods_changed' ) );
+	}
 }
