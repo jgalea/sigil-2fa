@@ -374,7 +374,7 @@ final class WP_2FA_Import {
 	/**
 	 * @param list<array<string, mixed>> $records
 	 * @param list<string>               $flags
-	 * @return array{rows: list<array{credential_id: string, public_key: string, sign_count: int, label: string, transports: string}>, lost: bool, already: bool}
+	 * @return array{rows: list<array{credential_id: string, public_key: string, sign_count: int, label: string, transports: string, user_handle: string, discoverable: bool|null}>, lost: bool, already: bool}
 	 */
 	private static function passkey_rows( int $user_id, array $records, array &$flags ): array {
 		$out = array(

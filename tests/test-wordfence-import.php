@@ -12,6 +12,9 @@ class Test_Wordfence_Import extends WP_UnitTestCase {
 
 	use Import_Fixtures;
 
+	// Bytes that are not valid UTF-8, as Wordfence's random handles almost always are.
+	private const WF_HANDLE = "\xff\x00\xfe\x80handle-bytes-0123456789abcdef";
+
 	// The raw bytes behind the RFC 6238 test key, as Wordfence stores a secret.
 	private const RAW_SECRET = '12345678901234567890';
 	private const SECRET     = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
@@ -100,6 +103,7 @@ class Test_Wordfence_Import extends WP_UnitTestCase {
 				'sign_count'         => 0,
 				'transports'         => 'internal,hybrid',
 				'label'              => 'MacBook',
+				'user_handle'        => self::WF_HANDLE,
 				'ctime'              => time(),
 				'mtime'              => time(),
 			)
@@ -160,6 +164,8 @@ class Test_Wordfence_Import extends WP_UnitTestCase {
 		$this->assertCount( 1, $rows );
 		$this->assertSame( 'MacBook', $rows[0]->label );
 		$this->assertSame( 'internal,hybrid', $rows[0]->transports );
+		$this->assertSame( self::WF_HANDLE, $rows[0]->user_handle, 'the original handle is kept, as raw bytes' );
+		$this->assertSame( 1, (int) $rows[0]->discoverable, 'Wordfence only registers resident keys' );
 
 		$other = $this->passkey_keypair();
 		$this->assertFalse( $this->passkey_signs_in( $uid, $credential_id, $other['private'], 1 ) );

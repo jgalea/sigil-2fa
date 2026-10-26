@@ -295,7 +295,7 @@ final class Two_Factor_Import {
 	 * cannot carry are named in $flags and set 'lost'.
 	 *
 	 * @param list<string> $flags
-	 * @return array{rows: list<array{credential_id: string, public_key: string, sign_count: int, label: string, transports: string}>, lost: bool, already: bool}|null
+	 * @return array{rows: list<array{credential_id: string, public_key: string, sign_count: int, label: string, transports: string, user_handle: string, discoverable: bool|null}>, lost: bool, already: bool}|null
 	 */
 	private static function webauthn_keys( int $user_id, array &$flags ): ?array {
 		global $wpdb;
@@ -310,7 +310,7 @@ final class Two_Factor_Import {
 			// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
 			$records = $wpdb->get_results(
 				$wpdb->prepare(
-					"SELECT k.credential_id, k.public_key, k.counter, k.name, k.u2f FROM {$keys} AS k INNER JOIN {$handles} AS h ON h.user_handle = k.user_handle WHERE h.user_id = %d ORDER BY k.id ASC",
+					"SELECT k.credential_id, k.public_key, k.counter, k.name, k.u2f, h.user_handle AS handle FROM {$keys} AS k INNER JOIN {$handles} AS h ON h.user_handle = k.user_handle WHERE h.user_id = %d ORDER BY k.id ASC",
 					$user_id
 				)
 			);
@@ -368,7 +368,7 @@ final class Two_Factor_Import {
 				continue;
 			}
 
-			$row = Import::passkey_row( $credential_id, Import::base64url_decode( (string) $record->public_key ), (int) $record->counter, (string) $record->name, '' );
+			$row = Import::passkey_row( $credential_id, Import::base64url_decode( (string) $record->public_key ), (int) $record->counter, (string) $record->name, '', Import::base64url_decode( (string) $record->handle ) );
 			if ( is_string( $row ) ) {
 				$flags[]     = $row;
 				$out['lost'] = true;

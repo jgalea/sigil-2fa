@@ -226,7 +226,7 @@ final class Wordfence_Import {
 
 		// Wordfence's own table under the network prefix; the user id is prepared.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
-		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT credential_id, public_key, sign_count, transports, label FROM {$table} WHERE user_id = %d ORDER BY id ASC", $user_id ) );
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT credential_id, public_key, sign_count, transports, label, user_handle FROM {$table} WHERE user_id = %d ORDER BY id ASC", $user_id ) );
 
 		return is_array( $rows ) ? $rows : array();
 	}
@@ -234,7 +234,7 @@ final class Wordfence_Import {
 	/**
 	 * @param list<object>  $records
 	 * @param list<string>  $flags
-	 * @return array{rows: list<array{credential_id: string, public_key: string, sign_count: int, label: string, transports: string}>, lost: bool, already: bool}
+	 * @return array{rows: list<array{credential_id: string, public_key: string, sign_count: int, label: string, transports: string, user_handle: string, discoverable: bool|null}>, lost: bool, already: bool}
 	 */
 	private static function passkey_rows( int $user_id, array $records, array &$flags ): array {
 		$out = array(
@@ -264,7 +264,8 @@ final class Wordfence_Import {
 				continue;
 			}
 
-			$row = Import::passkey_row( $credential_id, (string) $record->public_key, (int) $record->sign_count, (string) $record->label, (string) $record->transports );
+			// Wordfence only registers resident keys, so the passkey can sign in alone.
+			$row = Import::passkey_row( $credential_id, (string) $record->public_key, (int) $record->sign_count, (string) $record->label, (string) $record->transports, (string) $record->user_handle, true );
 			if ( is_string( $row ) ) {
 				$flags[]     = $row;
 				$out['lost'] = true;

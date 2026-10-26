@@ -23,6 +23,9 @@ final class Import {
 	// The width of Sigil's credential_id column.
 	private const MAX_CREDENTIAL_ID_BYTES = 255;
 
+	// The WebAuthn limit, and the width of Sigil's user_handle column.
+	private const MAX_USER_HANDLE_BYTES = 64;
+
 	/**
 	 * @return array<string, array{label: string, class: class-string}>
 	 */
@@ -51,6 +54,12 @@ final class Import {
 	 * @return array{users: list<array<string, mixed>>, counts: array<string, int>}
 	 */
 	public static function run( string $importer, ?array $user_ids, bool $dry_run ): array {
+		if ( ! $dry_run ) {
+			// The table is upgraded on the first admin request after an update, which
+			// a command-line import can beat.
+			Schema::instance()->maybe_install();
+		}
+
 		$user_ids = null === $user_ids ? $importer::candidates() : $user_ids;
 
 		$users  = array();
@@ -134,7 +143,7 @@ final class Import {
 	 *
 	 * @param array<string, mixed>                $result
 	 * @param array<string, array<string, mixed>> $writes   Sigil method id => stored data.
-	 * @param list<array{credential_id: string, public_key: string, sign_count: int, label: string, transports: string}> $passkeys
+	 * @param list<array{credential_id: string, public_key: string, sign_count: int, label: string, transports: string, user_handle: string, discoverable: bool|null}> $passkeys
 	 * @return array<string, mixed>
 	 */
 	public static function apply( array $result, int $user_id, array $writes, array $passkeys, bool $dry_run ): array {
@@ -152,7 +161,7 @@ final class Import {
 
 			$added = 0;
 			foreach ( $passkeys as $row ) {
-				if ( Credentials::add( $user_id, $row['credential_id'], $row['public_key'], $row['sign_count'], $row['label'], $row['transports'] ) > 0 ) {
+				if ( Credentials::add( $user_id, $row['credential_id'], $row['public_key'], $row['sign_count'], $row['label'], $row['transports'], $row['user_handle'], $row['discoverable'] ) > 0 ) {
 					++$added;
 				}
 			}
@@ -283,9 +292,13 @@ final class Import {
 	 * Returns the reason it cannot come across instead when there is one:
 	 * passkeys_unavailable, passkey_key_unusable or passkey_id_too_long.
 	 *
-	 * @return array{credential_id: string, public_key: string, sign_count: int, label: string, transports: string}|string
+	 * The user handle is the raw bytes the authenticator was given, which is
+	 * what lets the passkey sign in on its own. Without one the passkey still
+	 * works as a second factor.
+	 *
+	 * @return array{credential_id: string, public_key: string, sign_count: int, label: string, transports: string, user_handle: string, discoverable: bool|null}|string
 	 */
-	public static function passkey_row( string $credential_id, string $public_key, int $sign_count, string $label, string $transports ) {
+	public static function passkey_row( string $credential_id, string $public_key, int $sign_count, string $label, string $transports, string $user_handle = '', ?bool $discoverable = null ) {
 		$provider = Providers::instance()->get( 'passkey' );
 		if ( null === $provider || ! $provider->is_available() ) {
 			return 'passkeys_unavailable';
@@ -309,6 +322,8 @@ final class Import {
 			'sign_count'    => max( 0, $sign_count ),
 			'label'         => '' !== trim( $label ) ? $label : __( 'Passkey', 'sigil-2fa' ),
 			'transports'    => $transports,
+			'user_handle'   => strlen( $user_handle ) <= self::MAX_USER_HANDLE_BYTES ? $user_handle : '',
+			'discoverable'  => $discoverable,
 		);
 	}
 

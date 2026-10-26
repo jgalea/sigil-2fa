@@ -3,12 +3,16 @@
 declare( strict_types=1 );
 
 use Sigil\Credentials;
+use Sigil\Import;
 use Sigil\Providers;
 use Sigil\Two_Factor_Import;
 
 class Test_WebAuthn_Import extends WP_UnitTestCase {
 
 	use Import_Fixtures;
+
+	/** @var array<int, string> */
+	private array $handles = array();
 
 	public function set_up(): void {
 		parent::set_up();
@@ -75,6 +79,8 @@ class Test_WebAuthn_Import extends WP_UnitTestCase {
 			)
 		);
 
+		$this->handles[ $uid ] = $handle;
+
 		return array( $uid, $credential_id, $keys['private'] );
 	}
 
@@ -95,6 +101,8 @@ class Test_WebAuthn_Import extends WP_UnitTestCase {
 		$this->assertCount( 1, $rows );
 		$this->assertSame( 'YubiKey 5', $rows[0]->label );
 		$this->assertSame( 7, (int) $rows[0]->sign_count );
+		$this->assertSame( Import::base64url_decode( $this->handles[ $uid ] ), $rows[0]->user_handle, 'the base64url handle is stored as raw bytes' );
+		$this->assertNull( $rows[0]->discoverable, 'the provider does not say whether the key is resident' );
 		$this->assertTrue( Providers::instance()->get( 'passkey' )->is_enrolled( $uid ) );
 
 		$other = $this->passkey_keypair();
