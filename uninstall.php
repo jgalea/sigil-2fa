@@ -64,6 +64,10 @@ function sigil_uninstall(): void {
 		delete_site_option( $option );
 	}
 
+	// Network options under the add-on's prefix, the network-wide copy of the
+	// per-site sweep above.
+	$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->sitemeta} WHERE meta_key LIKE %s", $wpdb->esc_like( 'sigil_pro_' ) . '%' ) );
+
 	$wpdb->query(
 		"DELETE FROM {$wpdb->sitemeta}
 		 WHERE meta_key LIKE '\\_site\\_transient\\_sigil\\_%'

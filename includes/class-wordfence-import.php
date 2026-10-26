@@ -380,6 +380,12 @@ final class Wordfence_Import {
 	 * Wordfence untouched.
 	 */
 	public static function ajax_stand_down(): void {
+		// With Wordfence gone there is no form asking, and answering anyway
+		// would check passwords for anyone outside every login form.
+		if ( ! self::is_active() ) {
+			return;
+		}
+
 		// Wordfence's own login step, which carries no nonce; the credentials are
 		// checked by wp_authenticate() below.
 		// phpcs:disable WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized

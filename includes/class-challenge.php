@@ -239,9 +239,10 @@ final class Challenge {
 			return;
 		}
 
-		// Extension point for a trusted-device add-on. Defaults to false, so the
-		// second factor is only ever skipped by code that deliberately opts in
-		// (the Pro trusted-devices feature, which requires a valid signed token).
+		// Defaults to false, so the second factor is only ever skipped by code
+		// that deliberately opts in: passwordless sign-in for the account its
+		// passkey verified, and trusted devices for a browser holding a random
+		// token whose hash is stored against this account.
 		if ( true === apply_filters( 'sigil_skip_challenge', false, $user ) ) {
 			// Passwordless and trusted devices grant before wp_signon() sets the
 			// cookie, so theirs has already gone out. Anything else excusing the
