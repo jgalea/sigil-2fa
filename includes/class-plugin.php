@@ -63,6 +63,9 @@ final class Plugin {
 		require_once SIGIL_DIR . 'includes/class-alerts.php';
 		Alerts::instance();
 
+		require_once SIGIL_DIR . 'includes/class-review-prompt.php';
+		Review_Prompt::instance();
+
 		require_once SIGIL_DIR . 'includes/class-enforcement.php';
 		Enforcement::instance();
 

@@ -127,17 +127,28 @@ final class Wizard {
 	}
 
 	/**
+	 * Whether this administrator is shown the nudge on the current screen. It
+	 * stops once they have a method of their own, since it would otherwise tell
+	 * someone who just signed in with one that nothing is set up. Anything else
+	 * wanting that screen's notice area asks here to stay out of its way.
+	 */
+	public static function nudge_showing( int $user_id ): bool {
+		if ( self::is_done() || ! user_can( $user_id, Network::manage_capability() ) || Providers::instance()->has_usable( $user_id ) ) {
+			return false;
+		}
+
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+
+		return $screen && in_array( $screen->id, array( 'settings_page_sigil-2fa', 'settings_page_sigil-2fa-network' ), true );
+	}
+
+	/**
 	 * One prompt, on the plugin's own settings screen only, with a way to make
 	 * it go away. Nagging from every page of the dashboard is how plugins get
 	 * deleted.
 	 */
 	public function nudge(): void {
-		if ( self::is_done() || ! current_user_can( Network::manage_capability() ) ) {
-			return;
-		}
-
-		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-		if ( ! $screen || ! in_array( $screen->id, array( 'settings_page_sigil-2fa', 'settings_page_sigil-2fa-network' ), true ) ) {
+		if ( ! self::nudge_showing( (int) get_current_user_id() ) ) {
 			return;
 		}
 

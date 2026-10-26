@@ -47,6 +47,40 @@ class Test_Wizard extends WP_UnitTestCase {
 		delete_transient( 'sigil_backup_show_' . $user_id );
 	}
 
+	public function test_the_nudge_shows_to_an_administrator_with_nothing_set_up(): void {
+		$admin = $this->admin();
+		set_current_screen( 'settings_page_sigil-2fa' );
+
+		$this->assertTrue( \Sigil\Wizard::nudge_showing( $admin ) );
+	}
+
+	public function test_the_nudge_stops_once_the_administrator_has_a_method(): void {
+		$admin = $this->admin();
+		set_current_screen( 'settings_page_sigil-2fa' );
+		\Sigil\Store::set_method( $admin, 'totp', array( 'secret' => self::SECRET ) );
+
+		$this->assertFalse( \Sigil\Wizard::nudge_showing( $admin ) );
+	}
+
+	public function test_the_nudge_stops_once_enforcement_is_on_or_the_wizard_is_dismissed(): void {
+		$admin = $this->admin();
+		set_current_screen( 'settings_page_sigil-2fa' );
+
+		\Sigil\Network::update_option( \Sigil\Wizard::OPTION, true );
+		$this->assertFalse( \Sigil\Wizard::nudge_showing( $admin ) );
+
+		\Sigil\Network::delete_option( \Sigil\Wizard::OPTION );
+		\Sigil\Policy::update( array( 'enabled' => true, 'roles' => array( 'editor' => true ) ) );
+		$this->assertFalse( \Sigil\Wizard::nudge_showing( $admin ) );
+	}
+
+	public function test_the_nudge_stays_on_the_sigil_screen(): void {
+		$admin = $this->admin();
+		set_current_screen( 'dashboard' );
+
+		$this->assertFalse( \Sigil\Wizard::nudge_showing( $admin ) );
+	}
+
 	public function test_it_starts_by_asking_for_a_factor(): void {
 		$admin = $this->admin();
 
