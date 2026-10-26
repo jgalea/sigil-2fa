@@ -240,10 +240,13 @@ final class Challenge {
 		// second factor is only ever skipped by code that deliberately opts in
 		// (the Pro trusted-devices feature, which requires a valid signed token).
 		if ( true === apply_filters( 'sigil_skip_challenge', false, $user ) ) {
-			// wp_signon() already tried to set the cookie and Login_Guard held
-			// it, so issue it again now the sign-in is excused.
-			Login_Guard::grant( (int) $user->ID );
-			wp_set_auth_cookie( $user->ID, ! empty( $_POST['rememberme'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- wp_login runs after WordPress validated the login POST.
+			// Passwordless and trusted devices grant before wp_signon() sets the
+			// cookie, so theirs has already gone out. Anything else excusing the
+			// sign-in here had its cookie held, so issue it again.
+			if ( ! Login_Guard::issued( (int) $user->ID ) ) {
+				Login_Guard::grant( (int) $user->ID );
+				wp_set_auth_cookie( $user->ID, ! empty( $_POST['rememberme'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- wp_login runs after WordPress validated the login POST.
+			}
 			return;
 		}
 

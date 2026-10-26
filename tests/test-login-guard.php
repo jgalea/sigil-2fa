@@ -33,7 +33,8 @@ class Test_Login_Guard extends WP_UnitTestCase {
 		$this->reset_guard( 'granted', array() );
 		$this->reset_guard( 'session_user', null );
 		$this->reset_guard( 'password_attempted', false );
-		unset( $_COOKIE[ AUTH_COOKIE ], $_COOKIE[ LOGGED_IN_COOKIE ] );
+		$this->reset_guard( 'issued', array() );
+		unset( $_COOKIE[ AUTH_COOKIE ], $_COOKIE[ LOGGED_IN_COOKIE ], $_COOKIE['sigil_pro_trusted'] );
 		parent::tear_down();
 	}
 
@@ -290,6 +291,81 @@ class Test_Login_Guard extends WP_UnitTestCase {
 		$login    = $user->user_login;
 		$password = 'password';
 		do_action_ref_array( 'wp_authenticate', array( &$login, &$password ) );
+		wp_set_auth_cookie( (int) $user->ID );
+
+		$this->assertSame( array( false ), $this->sent );
+	}
+
+	private function trust_device( WP_User $user ): void {
+		\Sigil\Trusted_Devices::instance()->register();
+		$_COOKIE['sigil_pro_trusted'] = \Sigil\Trusted_Devices::instance()->trust_current_device( (int) $user->ID );
+	}
+
+	// wp_signon() takes these two steps and then fires wp_login, where the
+	// challenge would exit to draw its screen.
+	private function password_step( WP_User $user, string $password = 'password' ) {
+		$result = wp_authenticate( $user->user_login, $password );
+		if ( $result instanceof WP_User ) {
+			wp_set_auth_cookie( (int) $result->ID );
+		}
+		return $result;
+	}
+
+	public function test_a_trusted_device_gets_its_session_at_the_password_step(): void {
+		$user = $this->enrolled_user();
+		$this->trust_device( $user );
+
+		$this->assertInstanceOf( WP_User::class, $this->password_step( $user ) );
+		$this->assertSame( array( true ), $this->sent );
+		$this->assertCount( 1, WP_Session_Tokens::get_instance( (int) $user->ID )->get_all() );
+	}
+
+	public function test_a_trusted_device_sign_in_through_wp_signon_issues_one_session(): void {
+		$user = $this->enrolled_user();
+		$this->trust_device( $user );
+
+		$this->assertInstanceOf( WP_User::class, $this->sign_on( $user ) );
+		$this->assertSame( array( true ), $this->sent, 'sent once, not held and issued again' );
+		$this->assertCount( 1, WP_Session_Tokens::get_instance( (int) $user->ID )->get_all() );
+	}
+
+	public function test_a_forged_trusted_device_cookie_grants_nothing(): void {
+		$user = $this->enrolled_user();
+		\Sigil\Trusted_Devices::instance()->register();
+		$_COOKIE['sigil_pro_trusted'] = str_repeat( 'ab', 32 );
+
+		$this->password_step( $user );
+
+		$this->assertSame( array( false ), $this->sent );
+	}
+
+	public function test_an_expired_trusted_device_cookie_grants_nothing(): void {
+		$user = $this->enrolled_user();
+		$this->trust_device( $user );
+		$devices               = get_user_meta( (int) $user->ID, '_sigil_pro_trusted', true );
+		$devices[0]['expires'] = time() - 1;
+		update_user_meta( (int) $user->ID, '_sigil_pro_trusted', $devices );
+
+		$this->password_step( $user );
+
+		$this->assertSame( array( false ), $this->sent );
+	}
+
+	public function test_a_device_trusted_for_someone_else_grants_nothing(): void {
+		$user  = $this->enrolled_user();
+		$other = $this->enrolled_user();
+		$this->trust_device( $other );
+
+		$this->password_step( $user );
+
+		$this->assertSame( array( false ), $this->sent );
+	}
+
+	public function test_a_trusted_device_and_the_wrong_password_grants_nothing(): void {
+		$user = $this->enrolled_user();
+		$this->trust_device( $user );
+
+		$this->assertWPError( $this->password_step( $user, 'wrong' ) );
 		wp_set_auth_cookie( (int) $user->ID );
 
 		$this->assertSame( array( false ), $this->sent );

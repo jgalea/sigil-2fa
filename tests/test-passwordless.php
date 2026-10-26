@@ -300,4 +300,71 @@ class Test_Passwordless extends WP_UnitTestCase {
 
 		$this->assertSame( 404, $this->rest( 'GET' )->get_status() );
 	}
+
+	// On REST and AJAX nothing comes back after wp_signon() to issue a held
+	// cookie again, so the one it sets has to be the one that goes out.
+	public function test_the_session_goes_out_with_the_sign_in_itself(): void {
+		$sent = &$this->record_cookies_ref();
+
+		$this->assertInstanceOf( WP_User::class, $this->sign_on( $this->signed() ) );
+
+		$this->assertSame( array( true ), $sent );
+		$this->assertCount( 1, WP_Session_Tokens::get_instance( $this->user_id )->get_all() );
+	}
+
+	public function test_a_failed_passkey_issues_no_session(): void {
+		$sent = &$this->record_cookies_ref();
+
+		$this->assertWPError( $this->sign_on( $this->signed( self::UP ) ) );
+		wp_set_auth_cookie( $this->user_id );
+
+		$this->assertSame( array( false ), $sent );
+	}
+
+	/** @var list<bool> */
+	private array $sent_cookies = array();
+
+	/**
+	 * @return list<bool>
+	 */
+	private function &record_cookies_ref(): array {
+		// The account was created in this same request, which the guard lets
+		// through as a new registration.
+		foreach ( array( 'new_users', 'granted', 'issued' ) as $property ) {
+			$prop = new ReflectionProperty( \Sigil\Login_Guard::class, $property );
+			$prop->setAccessible( true );
+			$prop->setValue( \Sigil\Login_Guard::instance(), array() );
+		}
+
+		$this->sent_cookies = array();
+		remove_filter( 'send_auth_cookies', '__return_false' );
+		add_filter(
+			'send_auth_cookies',
+			function ( $send, $expire, $expiration, $user_id ) {
+				if ( $user_id > 0 ) {
+					$this->sent_cookies[] = (bool) $send;
+				}
+				return false;
+			},
+			PHP_INT_MAX,
+			4
+		);
+		return $this->sent_cookies;
+	}
+
+	// The REST route runs wp_signon() on a REST request, where core's
+	// application-password check answers an empty username with
+	// invalid_username once anyone on the site has an application password.
+	public function test_the_rest_route_signs_in_on_a_site_using_application_passwords(): void {
+		update_network_option( null, 'using_application_passwords', 1 );
+		add_filter( 'application_password_is_api_request', '__return_true' );
+
+		$user = $this->sign_on( $this->signed() );
+
+		remove_filter( 'application_password_is_api_request', '__return_true' );
+		delete_network_option( null, 'using_application_passwords' );
+
+		$this->assertInstanceOf( WP_User::class, $user );
+		$this->assertSame( $this->user_id, (int) $user->ID );
+	}
 }

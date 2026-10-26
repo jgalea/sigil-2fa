@@ -35,6 +35,9 @@ final class Login_Guard {
 	/** @var array<int, true> */
 	private array $new_users = array();
 
+	/** @var array<int, true> */
+	private array $issued = array();
+
 	/**
 	 * Who the request arrived signed in as, proven by its auth cookie.
 	 */
@@ -68,6 +71,13 @@ final class Login_Guard {
 		if ( $user_id > 0 ) {
 			self::instance()->granted[ $user_id ] = true;
 		}
+	}
+
+	/**
+	 * Whether this request has already sent a session cookie for the user.
+	 */
+	public static function issued( int $user_id ): bool {
+		return isset( self::instance()->issued[ $user_id ] );
 	}
 
 	/**
@@ -170,15 +180,10 @@ final class Login_Guard {
 			return (bool) $send;
 		}
 
-		if ( isset( $this->granted[ $user_id ] ) || isset( $this->new_users[ $user_id ] ) ) {
-			return true;
-		}
-
-		if ( $this->is_existing_session( $user_id ) ) {
-			return true;
-		}
-
-		if ( ! Providers::instance()->has_usable( $user_id ) ) {
+		if ( isset( $this->granted[ $user_id ] ) || isset( $this->new_users[ $user_id ] )
+			|| $this->is_existing_session( $user_id )
+			|| ! Providers::instance()->has_usable( $user_id ) ) {
+			$this->issued[ $user_id ] = true;
 			return true;
 		}
 

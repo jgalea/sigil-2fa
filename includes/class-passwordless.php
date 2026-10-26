@@ -29,6 +29,14 @@ final class Passwordless {
 	 */
 	private const EMPTY_CODES = array( 'empty_username', 'empty_password', 'expired_session' );
 
+	/**
+	 * What core's application-password check says about an empty username on
+	 * a REST or XML-RPC request, once any account on the site has an
+	 * application password. Nothing was typed, so these mean the same as the
+	 * codes above.
+	 */
+	private const EMPTY_API_CODES = array( 'invalid_username', 'invalid_email' );
+
 	private static ?Passwordless $instance = null;
 
 	/**
@@ -77,8 +85,6 @@ final class Passwordless {
 	 * @return mixed
 	 */
 	public function authenticate( $user, $username = '', $password = '' ) {
-		unset( $username );
-
 		if ( '' !== (string) $password ) {
 			return $user;
 		}
@@ -88,7 +94,8 @@ final class Passwordless {
 			return $user;
 		}
 
-		if ( is_wp_error( $user ) && array() !== array_diff( $user->get_error_codes(), self::EMPTY_CODES ) ) {
+		$empty = '' === (string) $username ? array_merge( self::EMPTY_CODES, self::EMPTY_API_CODES ) : self::EMPTY_CODES;
+		if ( is_wp_error( $user ) && array() !== array_diff( $user->get_error_codes(), $empty ) ) {
 			return $user;
 		}
 
@@ -206,6 +213,11 @@ final class Passwordless {
 
 		Rate_Limit::clear( $user_key );
 		Rate_Limit::clear( $ip_key );
+
+		// wp_signon() sets the cookie straight after this filter, before
+		// wp_login, and on REST and AJAX nothing comes back later to issue it
+		// again. The passkey is verified, so let it through now.
+		Login_Guard::grant( $user_id );
 
 		return $user;
 	}

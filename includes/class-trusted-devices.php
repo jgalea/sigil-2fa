@@ -53,6 +53,8 @@ final class Trusted_Devices {
 	 */
 	public function register(): void {
 		add_filter( 'sigil_skip_challenge', array( $this, 'maybe_skip' ), 10, 2 );
+		// Last, so it only ever sees a sign-in every other filter has accepted.
+		add_filter( 'authenticate', array( $this, 'grant_session' ), PHP_INT_MAX, 3 );
 		add_action( 'sigil_challenge_form', array( $this, 'render_checkbox' ) );
 		add_action( 'sigil_challenge_passed', array( $this, 'on_passed' ), 10, 2 );
 
@@ -148,6 +150,42 @@ final class Trusted_Devices {
 		}
 		$this->touch( $user->ID, $raw );
 		return true;
+	}
+
+	/**
+	 * Let the session through when the password was right and the device is
+	 * trusted for that account.
+	 *
+	 * wp_signon() sets the cookie as soon as authentication returns, before
+	 * wp_login runs the challenge and its skip, so without this Login_Guard
+	 * holds it and the challenge has to issue a second one.
+	 *
+	 * Only for a typed account password. An application password is for API
+	 * clients and never becomes a browser session, and with no password the
+	 * user came from a cookie or a passkey, which grant for themselves.
+	 *
+	 * @param mixed  $user
+	 * @param string $username
+	 * @param string $password
+	 * @return mixed
+	 */
+	public function grant_session( $user, $username = '', $password = '' ) {
+		unset( $username );
+
+		if ( ! $user instanceof \WP_User || '' === (string) $password ) {
+			return $user;
+		}
+
+		if ( App_Passwords::instance()->used_application_password( (int) $user->ID ) ) {
+			return $user;
+		}
+
+		$raw = isset( $_COOKIE[ self::COOKIE ] ) ? (string) $_COOKIE[ self::COOKIE ] : '';
+		if ( $this->token_is_valid( (int) $user->ID, $raw ) ) {
+			Login_Guard::grant( (int) $user->ID );
+		}
+
+		return $user;
 	}
 
 	public function render_checkbox( $user ): void {
