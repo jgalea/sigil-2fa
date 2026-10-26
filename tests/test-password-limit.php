@@ -379,4 +379,104 @@ class Test_Password_Limit extends WP_UnitTestCase {
 
 		$this->assertInstanceOf( WP_User::class, wp_authenticate( 'varuser', self::PASS ) );
 	}
+
+	/**
+	 * Spellings MySQL's collation counts as the same name: case, accents,
+	 * zero-width joiners, full-width letters and trailing non-breaking spaces.
+	 *
+	 * @return list<string>
+	 */
+	private static function variants( string $base ): array {
+		$fullwidth = '';
+		foreach ( str_split( substr( $base, 0, 3 ) ) as $char ) {
+			$fullwidth .= mb_chr( ord( $char ) + 0xFEE0, 'UTF-8' );
+		}
+
+		return array(
+			strtoupper( $base ),
+			substr( $base, 0, 3 ) . "\u{200d}" . substr( $base, 3 ),
+			$fullwidth . substr( $base, 3 ),
+			$base . "\u{00a0}",
+			preg_replace( '/a/', "\u{00e1}", $base, 1 ),
+		);
+	}
+
+	private static function rename_login( int $user_id, string $login ): void {
+		global $wpdb;
+
+		$wpdb->update( $wpdb->users, array( 'user_login' => $login ), array( 'ID' => $user_id ) );
+		clean_user_cache( $user_id );
+	}
+
+	/**
+	 * Locking a name and trying a variant must say nothing about whether the
+	 * account exists, so both kinds of name merge spellings the same way.
+	 */
+	public function test_variants_of_an_existing_and_a_missing_login_merge_alike(): void {
+		$user = self::factory()->user->create_and_get( array( 'user_pass' => self::PASS ) );
+		self::rename_login( (int) $user->ID, "\u{03c3}varuser" );
+
+		foreach ( array( 'varuser', 'garuser' ) as $base ) {
+			$name     = "\u{03c3}" . $base;
+			$key      = \Sigil\Password_Limit::account_key( $name );
+			$variants = array_map(
+				static function ( $variant ) {
+					return "\u{03c3}" . $variant;
+				},
+				self::variants( $base )
+			);
+			// Greek final sigma, which NFKC and lowercasing leave alone.
+			$variants[] = "\u{03c2}" . $base;
+			$variants[] = "\u{03a3}" . strtoupper( $base );
+
+			foreach ( $variants as $variant ) {
+				$this->assertSame( $key, \Sigil\Password_Limit::account_key( $variant ), wp_json_encode( $variant ) . ' merges with ' . wp_json_encode( $name ) );
+			}
+		}
+	}
+
+	public function test_a_missing_name_merges_final_sigma_as_the_database_does(): void {
+		$this->assertSame(
+			\Sigil\Password_Limit::account_key( "\u{03c3}garuser" ),
+			\Sigil\Password_Limit::account_key( "\u{03c2}garuser" )
+		);
+	}
+
+	public function test_an_existing_login_keys_the_same_as_any_name_that_reaches_it(): void {
+		$user = self::factory()->user->create_and_get( array( 'user_login' => 'varuser', 'user_pass' => self::PASS ) );
+
+		foreach ( self::variants( 'varuser' ) as $variant ) {
+			$found = get_user_by( 'login', sanitize_user( $variant ) );
+			if ( $found instanceof WP_User ) {
+				$this->assertSame( (int) $user->ID, (int) $found->ID );
+				$this->assertSame( \Sigil\Password_Limit::account_key( $found->user_login ), \Sigil\Password_Limit::account_key( $variant ), wp_json_encode( $variant ) );
+			}
+		}
+	}
+
+	public function test_variants_of_an_existing_and_a_missing_email_merge_alike(): void {
+		self::factory()->user->create( array( 'user_email' => 'mixed@example.com' ) );
+
+		foreach ( array( 'mixed@example.com', 'nomail@example.com' ) as $email ) {
+			$key = \Sigil\Password_Limit::account_key( $email );
+			$this->assertSame( $key, \Sigil\Password_Limit::account_key( strtoupper( $email ) ) );
+			$this->assertSame( $key, \Sigil\Password_Limit::account_key( ucfirst( $email ) ) );
+		}
+	}
+
+	public function test_without_collation_weights_the_normaliser_still_merges_the_common_spellings(): void {
+		$cache = new ReflectionProperty( \Sigil\Password_Limit::class, 'collations' );
+		$cache->setAccessible( true );
+		$cache->setValue( null, array( 'user_login' => '', 'user_email' => '' ) );
+
+		$key = \Sigil\Password_Limit::account_key( 'garuser' );
+		$merged = array();
+		foreach ( array( 'GARUSER', "gar\u{200d}user", "garuser\u{00a0}", "\u{ff47}\u{ff41}\u{ff52}user" ) as $variant ) {
+			$merged[] = \Sigil\Password_Limit::account_key( $variant ) === $key;
+		}
+
+		$cache->setValue( null, null );
+
+		$this->assertSame( array( true, true, true, true ), $merged );
+	}
 }
