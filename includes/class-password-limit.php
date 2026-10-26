@@ -107,7 +107,7 @@ final class Password_Limit {
 		}
 
 		$limits      = self::limits();
-		$account_key = 'pw:a:' . $username;
+		$account_key = self::account_key( $username );
 		$ip_key      = self::ip_key();
 
 		// Taken before deciding, as the challenge does, so a burst of parallel
@@ -149,6 +149,52 @@ final class Password_Limit {
 		}
 
 		return $user;
+	}
+
+	/**
+	 * Reopen an account someone has locked by guessing at it.
+	 *
+	 * Clears what was counted against the account's username and its email,
+	 * since either may have been typed, and against an address when one is
+	 * given. The challenge's counters are a separate allowance for codes and
+	 * are left alone unless asked for.
+	 *
+	 * @return array<string, int> What each cleared bucket held.
+	 */
+	public static function unlock( \WP_User $user, string $ip = '', bool $challenge = false ): array {
+		$buckets = array();
+		foreach ( array_unique( array( (string) $user->user_login, (string) $user->user_email ) ) as $login ) {
+			$login = strtolower( trim( $login ) );
+			if ( '' !== $login ) {
+				$buckets[ 'password: ' . $login ] = self::account_key( $login );
+			}
+		}
+
+		if ( '' !== $ip ) {
+			$buckets[ 'password: address ' . $ip ] = 'pw:' . Challenge::ip_rate_key_for( $ip );
+		}
+
+		if ( $challenge ) {
+			$buckets['challenge: account'] = 'u:' . (int) $user->ID;
+			if ( '' !== $ip ) {
+				$buckets[ 'challenge: address ' . $ip ] = Challenge::ip_rate_key_for( $ip );
+			}
+		}
+
+		$cleared = array();
+		foreach ( $buckets as $label => $key ) {
+			$cleared[ $label ] = Rate_Limit::count( $key );
+			Rate_Limit::clear( $key );
+			if ( 0 === strpos( $key, 'pw:a:' ) ) {
+				Rate_Limit::clear( self::strike_key( $key ) );
+			}
+		}
+
+		return $cleared;
+	}
+
+	private static function account_key( string $login ): string {
+		return 'pw:a:' . $login;
 	}
 
 	/**

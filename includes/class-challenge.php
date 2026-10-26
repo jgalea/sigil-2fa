@@ -370,8 +370,10 @@ final class Challenge {
 	 * count still applies.
 	 */
 	public static function ip_rate_key(): string {
-		$ip = Request::client_ip();
+		return self::ip_rate_key_for( Request::client_ip() );
+	}
 
+	public static function ip_rate_key_for( string $ip ): string {
 		return '' === $ip ? '' : 'ip:' . hash( 'sha256', $ip );
 	}
 

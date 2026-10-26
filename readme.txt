@@ -50,6 +50,7 @@ Three ways back in if a second factor is lost:
 * Backup codes are generated and displayed at first enrolment.
 * A user with the `edit_users` capability can reset another user's 2FA from the Users screen.
 * `wp sigil reset <user>` clears a user's second factor from the command line when no one can reach the dashboard.
+* `wp sigil unlock <user> [--ip=<address>] [--challenge]` reopens password sign-in for an account paused by too many wrong passwords.
 
 **Application passwords**
 
@@ -75,6 +76,10 @@ Neither contacts an external service.
 = What happens if I lose my phone and get locked out? =
 
 Use one of the backup codes shown when you first set up 2FA. If you did not keep those, another administrator can reset your account from the Users screen. If nobody can get in at all, anyone with server access runs `wp sigil reset <your-username>` and your second factor is cleared.
+
+= Someone keeps guessing my password and now I can't sign in. =
+
+After five wrong passwords, password sign-in for that account pauses for 15 minutes, longer if it keeps happening, up to an hour. A passkey still signs you in during the pause. To reopen it straight away, anyone with server access runs `wp sigil unlock <your-username>`. Add `--ip=<address>` to clear an address that was paused too, and `--challenge` to clear wrong second-factor codes as well.
 
 = Does the plugin require an external account or service? =
 

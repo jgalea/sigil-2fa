@@ -236,4 +236,74 @@ class Test_Password_Limit extends WP_UnitTestCase {
 
 		$this->assertInstanceOf( WP_User::class, $result );
 	}
+
+	public function test_unlock_reopens_an_account_locked_by_its_username_and_its_email(): void {
+		$user = $this->user();
+		$this->fail_times( $user->user_login, 6 );
+		$this->fail_times( $user->user_email, 6 );
+
+		$cleared = \Sigil\Password_Limit::unlock( $user );
+
+		$this->assertSame( 6, $cleared[ 'password: ' . strtolower( $user->user_login ) ] );
+		$this->assertSame( 6, $cleared[ 'password: ' . strtolower( $user->user_email ) ] );
+		$this->assertInstanceOf( WP_User::class, wp_authenticate( $user->user_login, self::PASS ) );
+		$this->assertInstanceOf( WP_User::class, wp_authenticate( $user->user_email, self::PASS ) );
+	}
+
+	public function test_unlock_forgets_earlier_lockouts_too(): void {
+		$user = $this->user();
+		$this->fail_times( $user->user_login, 6 );
+		self::age_out( $user->user_login );
+		$this->fail_times( $user->user_login, 6 );
+
+		\Sigil\Password_Limit::unlock( $user );
+		$this->fail_times( $user->user_login, 6 );
+
+		$this->assertEqualsWithDelta( 15 * MINUTE_IN_SECONDS, self::account_expiry( $user->user_login ) - time(), 5, 'the next lockout starts again from the shortest' );
+	}
+
+	public function test_unlock_leaves_the_address_alone_unless_given_one(): void {
+		$this->limits( array( 'ip_attempts' => 3 ) );
+		$user = $this->user();
+		$this->fail_times( 'spray-one', 3 );
+
+		$cleared = \Sigil\Password_Limit::unlock( $user );
+		$this->assertLimited( wp_authenticate( $user->user_login, self::PASS ) );
+		$this->assertCount( 2, $cleared );
+
+		// Three failures, and the refusal above, which counts against a closed address.
+		$cleared = \Sigil\Password_Limit::unlock( $user, '198.51.100.7' );
+		$this->assertSame( 4, $cleared['password: address 198.51.100.7'] );
+		$this->assertInstanceOf( WP_User::class, wp_authenticate( $user->user_login, self::PASS ) );
+	}
+
+	public function test_unlock_leaves_the_challenge_counters_alone_unless_asked(): void {
+		$user = $this->user();
+		$ip   = \Sigil\Challenge::ip_rate_key();
+		\Sigil\Rate_Limit::reserve( 'u:' . $user->ID );
+		\Sigil\Rate_Limit::reserve( $ip );
+
+		$cleared = \Sigil\Password_Limit::unlock( $user, '198.51.100.7' );
+
+		$this->assertArrayNotHasKey( 'challenge: account', $cleared );
+		$this->assertSame( 1, \Sigil\Rate_Limit::count( 'u:' . $user->ID ) );
+		$this->assertSame( 1, \Sigil\Rate_Limit::count( $ip ) );
+
+		$cleared = \Sigil\Password_Limit::unlock( $user, '198.51.100.7', true );
+
+		$this->assertSame( 1, $cleared['challenge: account'] );
+		$this->assertSame( 1, $cleared['challenge: address 198.51.100.7'] );
+		$this->assertSame( 0, \Sigil\Rate_Limit::count( 'u:' . $user->ID ) );
+		$this->assertSame( 0, \Sigil\Rate_Limit::count( $ip ) );
+	}
+
+	public function test_unlock_touches_no_other_account(): void {
+		$user  = $this->user();
+		$other = $this->user();
+		$this->fail_times( $other->user_login, 6 );
+
+		\Sigil\Password_Limit::unlock( $user );
+
+		$this->assertLimited( wp_authenticate( $other->user_login, self::PASS ) );
+	}
 }

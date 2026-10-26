@@ -67,6 +67,57 @@ final class CLI {
 	}
 
 	/**
+	 * Reopen password sign-in for an account locked by wrong passwords.
+	 *
+	 * Clears the password attempts counted against the account's username and
+	 * email, and against an address when one is given. The second-factor
+	 * counters are left alone unless --challenge is passed.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <user>
+	 * : User ID, login, or email.
+	 *
+	 * [--ip=<address>]
+	 * : Also clear the attempts counted against this address.
+	 *
+	 * [--challenge]
+	 * : Also clear the second-factor attempts for the account, and for the address when --ip is given.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp sigil unlock admin
+	 *     wp sigil unlock admin@example.com --challenge
+	 *
+	 * @param list<string>               $args
+	 * @param array<string, string|bool> $assoc_args
+	 */
+	public function unlock( array $args, array $assoc_args = [] ): void {
+		$user = $this->resolve_user( $args[0] ?? '' );
+		if ( null === $user ) {
+			\WP_CLI::error( 'User not found.' );
+		}
+
+		$ip = isset( $assoc_args['ip'] ) ? trim( (string) $assoc_args['ip'] ) : '';
+		if ( '' !== $ip && false === filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+			\WP_CLI::error( sprintf( '%s is not an IP address.', $ip ) );
+		}
+
+		$cleared = Password_Limit::unlock( $user, $ip, ! empty( $assoc_args['challenge'] ) );
+		foreach ( $cleared as $label => $attempts ) {
+			\WP_CLI::log( sprintf( 'Cleared %s (%d attempts).', $label, $attempts ) );
+		}
+
+		\WP_CLI::success(
+			sprintf(
+				'Password sign-in reopened for user %s (ID %d).',
+				$user->user_login,
+				(int) $user->ID
+			)
+		);
+	}
+
+	/**
 	 * Show 2FA enrolment status for one user, or list all users when omitted.
 	 *
 	 * ## OPTIONS
