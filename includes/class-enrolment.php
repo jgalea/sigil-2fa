@@ -221,7 +221,7 @@ final class Enrolment {
 			);
 		}
 
-		if ( 'passkey' === $provider_id && ! Step_Up::allows_passkey( $user_id ) ) {
+		if ( 'passkey' === $provider_id && ( ! Step_Up::allows_passkey( $user_id ) || ! Step_Up::claim( $user_id ) ) ) {
 			return Step_Up::passkey_error();
 		}
 

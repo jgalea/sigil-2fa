@@ -528,7 +528,6 @@ class Test_Step_Up extends WP_UnitTestCase {
 		$this->assertSame( '', get_user_meta( $user, Step_Up::ORIGIN_META, true ) );
 	}
 
-
 	// What an administrator registered for this account is theirs, not the
 	// owner's, so it never vouches for the owner.
 	public function test_a_passkey_someone_else_registered_proves_nothing(): void {
@@ -546,7 +545,6 @@ class Test_Step_Up extends WP_UnitTestCase {
 		$this->assertWPError( Step_Up::prove( $user, array( 'passkey_assertion' => wp_json_encode( $assertion ) ) ) );
 	}
 
-
 	// Imported factors arrive while sessions are already open, so they only
 	// vouch for sessions that sign in after the import.
 	public function test_an_imported_authenticator_does_not_prove_it_for_a_session_already_open(): void {
@@ -561,7 +559,6 @@ class Test_Step_Up extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'totp', (array) get_user_meta( $user, Step_Up::ORIGIN_META, true ) );
 		$this->assertWPError( Step_Up::prove( $user, array( 'code' => \Sigil\Providers\TOTP::code_at( self::SECRET, time() ) ) ) );
 	}
-
 
 	public function test_imported_passkeys_are_recorded_when_they_arrive(): void {
 		$user   = $this->user();
@@ -581,5 +578,37 @@ class Test_Step_Up extends WP_UnitTestCase {
 		$id = (int) \Sigil\Credentials::for_user( $user )[0]->id;
 		$this->assertArrayHasKey( 'passkey:' . $id, (array) get_user_meta( $user, Step_Up::ORIGIN_META, true ) );
 		$this->assertSame( $passes + 1, did_action( 'sigil_methods_changed' ) );
+	}
+
+	// Two registrations sent at once both read the proof before either spends
+	// it. Only one may use it.
+	public function test_one_factor_proof_covers_one_passkey_even_when_two_race(): void {
+		$this->skip_without_passkeys();
+		$user = $this->user();
+		$this->with_totp( $user );
+		$token = $this->sign_in( $user, self::STALE );
+
+		$this->assertTrue( Step_Up::prove( $user, array( 'code' => \Sigil\Providers\TOTP::code_at( self::SECRET, time() ) ) ) );
+		$manager = WP_Session_Tokens::get_instance( $user );
+		$proved  = $manager->get( $token );
+
+		$this->assertTrue( Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) ) );
+
+		// The second request read the session before the first spent it.
+		$manager->update( $token, $proved );
+		$this->forget_request_proof();
+
+		$this->assertWPError( Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) ) );
+		$this->assertCount( 1, \Sigil\Credentials::for_user( $user ) );
+	}
+
+	private function forget_request_proof(): void {
+		foreach ( array( 'proven', 'by_password', 'set_up' ) as $name ) {
+			if ( property_exists( Step_Up::class, $name ) ) {
+				$property = new ReflectionProperty( Step_Up::class, $name );
+				$property->setAccessible( true );
+				$property->setValue( null, array() );
+			}
+		}
 	}
 }

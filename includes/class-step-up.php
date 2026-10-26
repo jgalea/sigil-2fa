@@ -207,6 +207,28 @@ final class Step_Up {
 		update_user_meta( $user_id, self::ORIGIN_META, $origins );
 	}
 
+	/**
+	 * Take the current proof for one passkey, atomically, so two registrations
+	 * sent at once cannot both spend a proof that covers one. A password proof
+	 * lasts its window and is not taken.
+	 */
+	public static function claim( int $user_id ): bool {
+		if ( (int) get_current_user_id() !== $user_id || self::proven_by_password( $user_id ) ) {
+			return true;
+		}
+
+		$session = self::session( $user_id );
+		$stamp   = null === $session ? 0 : (int) ( $session[ self::SESSION_KEY ] ?? 0 );
+
+		// Proof given in this request with no session to keep it in cannot be
+		// replayed by another request.
+		if ( 0 === $stamp ) {
+			return isset( self::$proven[ self::request_key( $user_id ) ] );
+		}
+
+		return 1 === Rate_Limit::reserve( 'suc:' . self::request_key( $user_id ) . ':' . $stamp, self::WINDOW );
+	}
+
 	private static function proven_by_password( int $user_id ): bool {
 		if ( isset( self::$by_password[ self::request_key( $user_id ) ] ) ) {
 			return true;
