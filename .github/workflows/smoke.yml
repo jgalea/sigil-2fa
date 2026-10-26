@@ -1,0 +1,44 @@
+name: Smoke test
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      php: ${{ steps.php.outputs.versions }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the wordpress.org zip
+        run: bash build/build-free.sh
+      - name: Pick the PHP versions to test
+        id: php
+        run: |
+          min=$(unzip -p dist/sigil-2fa.zip sigil-2fa/sigil-2fa.php | sed -n 's/^ \* Requires PHP:[[:space:]]*//p' | head -1 | tr -d '\r')
+          [ -n "$min" ] || { echo "::error::no Requires PHP in the built plugin header"; exit 1; }
+          echo "versions=[\"$min\",\"8.5\"]" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sigil-2fa-zip
+          path: dist/sigil-2fa.zip
+          retention-days: 7
+
+  smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ${{ fromJSON(needs.build.outputs.php) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sigil-2fa-zip
+          path: dist
+      - name: Install, exercise, upgrade, uninstall, Plugin Check
+        run: bash tests/smoke/run.sh dist/sigil-2fa.zip --php ${{ matrix.php }}

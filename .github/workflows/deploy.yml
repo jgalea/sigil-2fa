@@ -5,8 +5,12 @@ on:
     types: [published]
 
 jobs:
+  smoke:
+    uses: ./.github/workflows/smoke.yml
+
   deploy:
     name: Deploy to wp.org
+    needs: smoke
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
