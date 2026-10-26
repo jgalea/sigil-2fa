@@ -94,6 +94,7 @@ final class Recovery {
 
 		// Residual method rows (e.g. provider unavailable on this runtime) and credentials.
 		delete_user_meta( $user_id, Store::META_KEY );
+		delete_user_meta( $user_id, Step_Up::ORIGIN_META );
 		Credentials::delete_for_user( $user_id );
 
 		$sessions = \WP_Session_Tokens::get_instance( $user_id );

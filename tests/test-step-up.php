@@ -429,6 +429,7 @@ class Test_Step_Up extends WP_UnitTestCase {
 		$user = $this->user();
 		$this->sign_in( $user );
 		$this->enrol_totp_through_the_screen( $user );
+		$this->set_up_at( $user, 'totp', time() - MINUTE_IN_SECONDS );
 
 		// Signed in again later, with the password and that authenticator.
 		$this->sign_in( $user );
@@ -452,5 +453,35 @@ class Test_Step_Up extends WP_UnitTestCase {
 		$this->assertTrue( Step_Up::prove( $user, array( 'password' => self::PASS ) ) );
 		$this->assertTrue( Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) ) );
 		$this->assertTrue( Step_Up::proven( $user ) );
+	}
+
+	// Times are to the second, so the same second cannot say which came first.
+	public function test_an_authenticator_set_up_in_the_second_the_session_signed_in_does_not_prove_it(): void {
+		$user = $this->user();
+		$this->sign_in( $user );
+		$this->enrol_totp_through_the_screen( $user );
+
+		$token = $this->sign_in( $user );
+		$login = (int) WP_Session_Tokens::get_instance( $user )->get( $token )['login'];
+		$this->set_up_at( $user, 'totp', $login );
+
+		$this->assertWPError( Step_Up::prove( $user, array( 'code' => \Sigil\Providers\TOTP::code_at( self::SECRET, time() ) ) ) );
+	}
+
+	public function test_a_reset_forgets_when_each_factor_was_set_up(): void {
+		$user = $this->user();
+		$this->sign_in( $user );
+		$this->enrol_totp_through_the_screen( $user );
+		$this->assertNotEmpty( get_user_meta( $user, Step_Up::ORIGIN_META, true ) );
+
+		$this->assertTrue( \Sigil\Recovery::reset_as_system( $user ) );
+
+		$this->assertSame( '', get_user_meta( $user, Step_Up::ORIGIN_META, true ) );
+	}
+
+	private function set_up_at( int $user, string $factor, int $at ): void {
+		$origins                  = get_user_meta( $user, Step_Up::ORIGIN_META, true );
+		$origins[ $factor ]['at'] = $at;
+		update_user_meta( $user, Step_Up::ORIGIN_META, $origins );
 	}
 }

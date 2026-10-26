@@ -181,9 +181,11 @@ final class Step_Up {
 	}
 
 	/**
-	 * Whether a factor can vouch for this session: set up no later than the
-	 * session last authenticated, by its sign-in or its password, and not by
-	 * this session. A factor with no record predates the record keeping.
+	 * Whether a factor can vouch for this session: set up before the session
+	 * last authenticated, by its sign-in or its password, and not by this
+	 * session. Strictly before, since times are to the second and the same
+	 * second cannot say which came first. A factor with no record predates the
+	 * record keeping.
 	 */
 	private static function vouches( int $user_id, string $factor ): bool {
 		$origin = self::origins( $user_id )[ $factor ] ?? null;
@@ -199,7 +201,7 @@ final class Step_Up {
 		$session = self::session( $user_id );
 		$authed  = null === $session ? 0 : max( (int) ( $session['login'] ?? 0 ), (int) ( $session[ self::PASSWORD_KEY ] ?? 0 ) );
 
-		return $authed > 0 && (int) ( $origin['at'] ?? PHP_INT_MAX ) <= $authed;
+		return $authed > 0 && (int) ( $origin['at'] ?? PHP_INT_MAX ) < $authed;
 	}
 
 	/**
