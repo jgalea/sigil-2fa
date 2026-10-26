@@ -28,29 +28,36 @@ final class Two_Factor_Import {
 	private const META_BACKUP  = '_two_factor_backup_codes';
 	private const OPTION_SITE  = 'two_factor_enabled_providers';
 
-	private const EMAIL  = 'Two_Factor_Email';
-	private const TOTP   = 'Two_Factor_Totp';
-	private const BACKUP = 'Two_Factor_Backup_Codes';
+	private const EMAIL    = 'Two_Factor_Email';
+	private const TOTP     = 'Two_Factor_Totp';
+	private const BACKUP   = 'Two_Factor_Backup_Codes';
+	private const WEBAUTHN = 'TwoFactor_Provider_WebAuthn';
+	// Two Factor's old U2F provider. The WebAuthn provider plugin adopts the
+	// keys it left behind, and enables itself for anyone who had it.
+	private const U2F = 'Two_Factor_FIDO_U2F';
 
 	// Two Factor's own provider order, which decides the primary method when
-	// the user never picked one.
-	private const ORDER = array( self::EMAIL, self::TOTP, self::BACKUP );
+	// the user never picked one. The WebAuthn provider registers after the
+	// built-in ones.
+	private const ORDER = array( self::EMAIL, self::TOTP, self::BACKUP, self::WEBAUTHN );
 
 	private const MAP = array(
-		self::EMAIL  => 'email',
-		self::TOTP   => 'totp',
-		self::BACKUP => 'backup',
+		self::EMAIL    => 'email',
+		self::TOTP     => 'totp',
+		self::BACKUP   => 'backup',
+		self::WEBAUTHN => 'passkey',
+		self::U2F      => 'passkey',
 	);
+
+	private const META_U2F         = '_two_factor_fido_u2f_registered_key';
+	private const WEBAUTHN_KEYS    = '2fa_webauthn_credentials';
+	private const WEBAUTHN_HANDLES = '2fa_webauthn_users';
 
 	// Sigil's backup-code check strips to eight characters before comparing,
 	// so codes of any other length could never be accepted.
 	private const BACKUP_LENGTH = 8;
 
-	private const MIN_SECRET_BYTES = 16;
-
-	private const REPORT_TRANSIENT = 'sigil_tf_report_';
-
-	public static function is_two_factor_active(): bool {
+	public static function is_active(): bool {
 		return class_exists( 'Two_Factor_Core', false ) || defined( 'TWO_FACTOR_VERSION' );
 	}
 
@@ -63,8 +70,8 @@ final class Two_Factor_Import {
 	 * Sigil issues after its own challenge.
 	 *
 	 * It stands down only for interactive sign-ins by someone whose Two Factor
-	 * setup Sigil fully covers. API requests never reach wp_login, so there
-	 * Two Factor keeps refusing the account password. Someone whose methods
+	 * setup Sigil fully covers. Sigil does not challenge API, AJAX or cron
+	 * sign-ins, so there Two Factor keeps refusing the account password. Someone whose methods
 	 * did not all come across stays with Two Factor until an administrator has
 	 * sorted them out.
 	 *
@@ -72,7 +79,7 @@ final class Two_Factor_Import {
 	 * @param mixed $user
 	 */
 	public static function filter_two_factor_required( $required, $user ): bool {
-		if ( ! $user instanceof \WP_User || App_Passwords::is_api_request() ) {
+		if ( ! $user instanceof \WP_User || ! Import::sigil_challenges_here() ) {
 			return (bool) $required;
 		}
 
@@ -116,6 +123,19 @@ final class Two_Factor_Import {
 		return $ids;
 	}
 
+	public static function has_data(): bool {
+		$args = array(
+			'meta_key' => self::META_ENABLED, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+			'fields'   => 'ID',
+			'number'   => 1,
+		);
+		if ( is_multisite() ) {
+			$args['blog_id'] = 0;
+		}
+
+		return array() !== get_users( $args );
+	}
+
 	/**
 	 * Import every candidate, or the ones given.
 	 *
@@ -123,56 +143,7 @@ final class Two_Factor_Import {
 	 * @return array{users: list<array<string, mixed>>, counts: array<string, int>}
 	 */
 	public static function run( ?array $user_ids, bool $dry_run ): array {
-		$user_ids = null === $user_ids ? self::candidates() : $user_ids;
-
-		$users  = array();
-		$counts = array(
-			'users'          => 0,
-			'not_using'      => 0,
-			'email'          => 0,
-			'totp'           => 0,
-			'backup'         => 0,
-			'already'        => 0,
-			'attention'      => 0,
-			'flagged'        => 0,
-		);
-
-		// One bulk migration is not a hundred separate security events. The
-		// account holder alert exists to expose an attacker adding a factor, and
-		// a mail to every user saying their methods changed would bury the one
-		// that mattered on any other day.
-		add_filter( 'sigil_send_change_alert', '__return_false', 99 );
-
-		foreach ( $user_ids as $user_id ) {
-			$result  = self::import_user( (int) $user_id, $dry_run );
-			$users[] = $result;
-
-			++$counts['users'];
-			if ( 'not_using' === $result['status'] ) {
-				++$counts['not_using'];
-			}
-			foreach ( array( 'email', 'totp', 'backup' ) as $method ) {
-				if ( in_array( $method, $result['imported'], true ) ) {
-					++$counts[ $method ];
-				}
-			}
-			if ( array() !== $result['already'] ) {
-				++$counts['already'];
-			}
-			if ( $result['needs_attention'] ) {
-				++$counts['attention'];
-			}
-			if ( array() !== $result['flags'] ) {
-				++$counts['flagged'];
-			}
-		}
-
-		remove_filter( 'sigil_send_change_alert', '__return_false', 99 );
-
-		return array(
-			'users'  => $users,
-			'counts' => $counts,
-		);
+		return Import::run( self::class, $user_ids, $dry_run );
 	}
 
 	/**
@@ -188,16 +159,7 @@ final class Two_Factor_Import {
 	 * }
 	 */
 	public static function import_user( int $user_id, bool $dry_run ): array {
-		$result = array(
-			'user_id'         => $user_id,
-			'login'           => '',
-			'status'          => 'ok',
-			'imported'        => array(),
-			'already'         => array(),
-			'preferred'       => '',
-			'needs_attention' => false,
-			'flags'           => array(),
-		);
+		$result = Import::blank_result( $user_id );
 
 		$user = get_userdata( $user_id );
 		if ( ! $user instanceof \WP_User ) {
@@ -223,6 +185,7 @@ final class Two_Factor_Import {
 		$had_email = in_array( self::EMAIL, $enabled, true );
 		$sigil     = Store::methods( $user_id );
 		$writes    = array();
+		$passkeys  = array();
 
 		// Set when Two Factor was using something Sigil cannot carry over.
 		$lost = false;
@@ -248,12 +211,31 @@ final class Two_Factor_Import {
 				$had_working         = true;
 			} else {
 				$had_working = true;
-				$data        = self::totp_record( $key, $user_id );
+				// Two Factor records the time of the last accepted code. Carrying it
+				// across stops that same code being replayed into Sigil inside its
+				// window.
+				$last = get_user_meta( $user_id, self::META_TOTP_TS, true );
+				$data = Import::totp_record( $key, is_numeric( $last ) ? intdiv( (int) $last, 30 ) : 0 );
 				if ( null === $data ) {
 					$result['flags'][] = 'totp_secret_unusable';
 					$lost              = true;
 				} else {
 					$writes['totp'] = $data;
+				}
+			}
+		}
+
+		if ( in_array( self::WEBAUTHN, $enabled, true ) || in_array( self::U2F, $enabled, true ) ) {
+			$keys = self::webauthn_keys( $user_id, $result['flags'] );
+			if ( null === $keys ) {
+				// The WebAuthn provider only challenges once a key is registered.
+				$result['flags'][] = 'passkey_never_registered';
+			} else {
+				$had_working = true;
+				$lost        = $keys['lost'] || $lost;
+				$passkeys    = $keys['rows'];
+				if ( $keys['already'] ) {
+					$result['already'][] = 'passkey';
 				}
 			}
 		}
@@ -290,7 +272,7 @@ final class Two_Factor_Import {
 		}
 
 		$will_have_email  = isset( $sigil['email'] ) || isset( $writes['email'] );
-		$will_have_signin = array() !== self::usable_sign_in_methods( $user_id ) || isset( $writes['totp'] ) || isset( $writes['email'] );
+		$will_have_signin = array() !== Import::usable_sign_in_methods( $user_id ) || isset( $writes['totp'] ) || isset( $writes['email'] ) || array() !== $passkeys;
 
 		if ( ( $lost && ! $will_have_email ) || ( $had_working && ! $will_have_signin ) ) {
 			$result['status']          = 'needs_attention';
@@ -299,54 +281,125 @@ final class Two_Factor_Import {
 			$result['status'] = 'not_using';
 		}
 
-		$result['preferred'] = self::preferred( $user_id, $enabled, $sigil, $writes );
+		$will_have = array_merge( array_keys( $sigil ), array_keys( $writes ), array() !== $passkeys ? array( 'passkey' ) : array() );
 
-		if ( ! $dry_run && array() !== $writes ) {
-			do_action( 'sigil_before_methods_change', $user_id );
+		$result['preferred'] = self::preferred( $user_id, $enabled, $will_have );
 
-			foreach ( $writes as $provider_id => $data ) {
-				Store::set_method( $user_id, $provider_id, $data );
-			}
-
-			$written = Store::methods( $user_id );
-			foreach ( array_keys( $writes ) as $provider_id ) {
-				if ( ! isset( $written[ $provider_id ] ) ) {
-					$result['status']          = 'needs_attention';
-					$result['needs_attention'] = true;
-					$result['flags'][]         = 'write_failed:' . $provider_id;
-					unset( $writes[ $provider_id ] );
-				}
-			}
-
-			/** This action is documented in includes/class-enrolment.php */
-			do_action( 'sigil_methods_changed', $user_id );
-		}
-
-		if ( ! $dry_run && '' !== $result['preferred'] && '' === Providers::preference( $user_id ) ) {
-			Providers::set_preference( $user_id, $result['preferred'] );
-		}
-
-		$result['imported'] = array_keys( $writes );
-
-		return $result;
+		return Import::apply( $result, $user_id, $writes, $passkeys, $dry_run );
 	}
 
 	/**
-	 * Methods Sigil can already challenge this account with, other than backup
-	 * codes. Asked of the providers rather than read from the stored list, so a
-	 * passkey row whose credentials are gone does not count.
+	 * The keys the WebAuthn provider plugin holds for this user, as Sigil rows.
 	 *
-	 * @return list<string>
+	 * Null when there are none, so the provider was never really in use. Keys it
+	 * cannot carry are named in $flags and set 'lost'.
+	 *
+	 * @param list<string> $flags
+	 * @return array{rows: list<array{credential_id: string, public_key: string, sign_count: int, label: string, transports: string, user_handle: string, discoverable: bool|null}>, lost: bool, already: bool}|null
 	 */
-	private static function usable_sign_in_methods( int $user_id ): array {
-		$ids = array();
-		foreach ( Providers::instance()->enrolled_for( $user_id ) as $provider ) {
-			if ( 'backup' !== $provider->id() ) {
-				$ids[] = $provider->id();
-			}
+	private static function webauthn_keys( int $user_id, array &$flags ): ?array {
+		global $wpdb;
+
+		$keys    = $wpdb->base_prefix . self::WEBAUTHN_KEYS;
+		$handles = $wpdb->base_prefix . self::WEBAUTHN_HANDLES;
+
+		$records = array();
+		if ( Import::table_exists( $keys ) && Import::table_exists( $handles ) ) {
+			// Both names are the provider plugin's own tables under the network
+			// prefix; only the user id is a value, and it is prepared.
+			// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+			$records = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT k.credential_id, k.public_key, k.counter, k.name, k.u2f, h.user_handle AS handle FROM {$keys} AS k INNER JOIN {$handles} AS h ON h.user_handle = k.user_handle WHERE h.user_id = %d ORDER BY k.id ASC",
+					$user_id
+				)
+			);
+			// phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+			$records = is_array( $records ) ? $records : array();
 		}
 
-		return $ids;
+		// Keys from Two Factor's old U2F provider that the WebAuthn plugin has not
+		// adopted into its table yet. It would adopt them on the next sign-in as
+		// U2F keys, which Sigil cannot verify either.
+		$legacy = array() === $records ? get_user_meta( $user_id, self::META_U2F, false ) : array();
+
+		if ( array() === $records && array() === $legacy ) {
+			return null;
+		}
+
+		$out = array(
+			'rows'    => array(),
+			'lost'    => false,
+			'already' => false,
+		);
+
+		if ( array() !== $legacy ) {
+			$flags[]     = 'passkey_u2f';
+			$out['lost'] = true;
+			return $out;
+		}
+
+		$source_rp = self::webauthn_rp_id();
+		if ( Providers\Passkey::rp_id() !== $source_rp ) {
+			$flags[]     = 'passkey_rp_mismatch:' . $source_rp;
+			$out['lost'] = true;
+			return $out;
+		}
+
+		foreach ( $records as $record ) {
+			if ( ! empty( $record->u2f ) ) {
+				// Signed with the U2F AppID rather than the RP ID. Verifying those
+				// needs the appid extension, which Sigil's WebAuthn library has not
+				// got.
+				$flags[]     = 'passkey_u2f';
+				$out['lost'] = true;
+				continue;
+			}
+
+			$credential_id = Import::base64url_decode( (string) $record->credential_id );
+			$owner         = Import::passkey_owner( $credential_id, $user_id );
+			if ( 'mine' === $owner ) {
+				$out['already'] = true;
+				continue;
+			}
+			if ( 'other' === $owner ) {
+				$flags[]     = 'passkey_other_user';
+				$out['lost'] = true;
+				continue;
+			}
+
+			$row = Import::passkey_row( $credential_id, Import::base64url_decode( (string) $record->public_key ), (int) $record->counter, (string) $record->name, '', Import::base64url_decode( (string) $record->handle ) );
+			if ( is_string( $row ) ) {
+				$flags[]     = $row;
+				$out['lost'] = true;
+				continue;
+			}
+			$out['rows'][] = $row;
+		}
+
+		$flags = array_values( array_unique( $flags ) );
+
+		return $out;
+	}
+
+	/**
+	 * The relying party the WebAuthn provider registers keys under: the cookie
+	 * domain when one is set, otherwise the host of its AppID URL.
+	 */
+	private static function webauthn_rp_id(): string {
+		if ( defined( 'COOKIE_DOMAIN' ) && is_string( COOKIE_DOMAIN ) && '' !== COOKIE_DOMAIN ) {
+			return strtolower( ltrim( COOKIE_DOMAIN, '.' ) );
+		}
+
+		$parts = wp_parse_url( home_url() );
+		$host  = is_array( $parts ) && isset( $parts['host'] ) ? (string) $parts['host'] : '';
+		$url   = 'https://' . $host . ( empty( $parts['port'] ) ? '' : ':' . (int) $parts['port'] );
+
+		// The provider plugin's own filter, read so a site that moved its AppID is caught.
+		$app_id = (string) apply_filters( 'webauthn_app_id', $url ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
+		$rp     = wp_parse_url( $app_id, PHP_URL_HOST );
+
+		return is_string( $rp ) ? strtolower( $rp ) : '';
 	}
 
 	/**
@@ -393,38 +446,6 @@ final class Two_Factor_Import {
 	}
 
 	/**
-	 * @return array{secret: string, last_step: int}|null
-	 */
-	private static function totp_record( string $key, int $user_id ): ?array {
-		$secret = strtoupper( preg_replace( '/[\s=]+/', '', $key ) ?? '' );
-		if ( ! preg_match( '/^[A-Z2-7]+$/', $secret ) ) {
-			return null;
-		}
-
-		// 5 bits per character; anything under 16 bytes is refused by Sigil's
-		// own validator and would never accept a code.
-		if ( intdiv( strlen( $secret ) * 5, 8 ) < self::MIN_SECRET_BYTES ) {
-			return null;
-		}
-
-		$encrypted = Crypto::encrypt( $secret );
-		if ( '' === $encrypted || ! hash_equals( $secret, Crypto::decrypt( $encrypted ) ) ) {
-			return null;
-		}
-
-		// Two Factor records the time of the last accepted code. Carrying it
-		// across stops that same code being replayed into Sigil inside its
-		// window.
-		$last = get_user_meta( $user_id, self::META_TOTP_TS, true );
-		$step = is_numeric( $last ) ? intdiv( (int) $last, 30 ) : 0;
-
-		return array(
-			'secret'    => base64_encode( $encrypted ), // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- binary ciphertext stored the same way the TOTP provider does.
-			'last_step' => max( 0, $step ),
-		);
-	}
-
-	/**
 	 * @return list<string>
 	 */
 	private static function backup_hashes( int $user_id ): array {
@@ -454,7 +475,7 @@ final class Two_Factor_Import {
 
 		$codes = array();
 		foreach ( $hashes as $hash ) {
-			if ( ! self::is_password_hash( $hash ) ) {
+			if ( ! Import::is_password_hash( $hash ) ) {
 				return null;
 			}
 			$codes[] = array(
@@ -466,28 +487,13 @@ final class Two_Factor_Import {
 		return array( 'codes' => $codes );
 	}
 
-	private static function is_password_hash( string $hash ): bool {
-		// phpass portable, WordPress 6.8+ bcrypt, and native password_hash().
-		if ( 0 === strpos( $hash, '$P$' ) || 0 === strpos( $hash, '$H$' ) ) {
-			return 34 === strlen( $hash );
-		}
-		if ( 0 === strpos( $hash, '$wp' ) ) {
-			return null !== password_get_info( substr( $hash, 3 ) )['algo'];
-		}
-
-		return null !== password_get_info( $hash )['algo'];
-	}
-
 	/**
 	 * The method Two Factor would have asked for first, as a Sigil id.
 	 *
-	 * @param list<string>                        $enabled
-	 * @param array<string, array<string, mixed>> $sigil
-	 * @param array<string, array<string, mixed>> $writes
+	 * @param list<string> $enabled
+	 * @param list<string> $will_have Sigil method ids the account ends up with.
 	 */
-	private static function preferred( int $user_id, array $enabled, array $sigil, array $writes ): string {
-		$will_have = array_merge( array_keys( $sigil ), array_keys( $writes ) );
-
+	private static function preferred( int $user_id, array $enabled, array $will_have ): string {
 		$primary = get_user_meta( $user_id, self::META_PRIMARY, true );
 		$order   = self::ORDER;
 		if ( is_string( $primary ) && in_array( $primary, $enabled, true ) ) {
@@ -509,49 +515,16 @@ final class Two_Factor_Import {
 		return '';
 	}
 
-	/**
-	 * @param array{users: list<array<string, mixed>>, counts: array<string, int>} $report
-	 */
-	public static function remember_report( int $user_id, array $report, bool $dry_run ): void {
-		$report['dry_run'] = $dry_run;
-		set_transient( self::REPORT_TRANSIENT . $user_id, $report, 15 * MINUTE_IN_SECONDS );
-	}
-
-	/**
-	 * @return array<string, mixed>|null
-	 */
-	public static function recall_report( int $user_id ): ?array {
-		$report = get_transient( self::REPORT_TRANSIENT . $user_id );
-
-		return is_array( $report ) ? $report : null;
-	}
-
 	public static function flag_label( string $flag ): string {
-		$parts = explode( ':', $flag, 2 );
-
-		switch ( $parts[0] ) {
+		switch ( explode( ':', $flag, 2 )[0] ) {
 			case 'totp_never_configured':
 				return __( 'Authenticator app was switched on but never set up in Two Factor', 'sigil-2fa' );
-			case 'totp_secret_unusable':
-				return __( 'Authenticator secret could not be read, so it was not imported', 'sigil-2fa' );
-			case 'backup_codes_unverifiable':
-				return __( 'Backup codes are in a format Sigil cannot check, so they were not imported', 'sigil-2fa' );
-			case 'backup_codes_none_left':
-				return __( 'Backup codes were switched on but none were left', 'sigil-2fa' );
-			case 'email_address_invalid':
-				return __( 'Account has no valid email address, so email codes could not be set up', 'sigil-2fa' );
+			case 'passkey_never_registered':
+				return __( 'WebAuthn was switched on but no security key or passkey was ever registered', 'sigil-2fa' );
 			case 'data_without_enabled_method':
 				return __( 'Two Factor data exists but no method was switched on, so nothing was imported', 'sigil-2fa' );
-			case 'unsupported_method':
-				/* translators: %s: Two Factor provider name */
-				return sprintf( __( 'Method %s has no Sigil equivalent', 'sigil-2fa' ), $parts[1] ?? '' );
-			case 'write_failed':
-				/* translators: %s: Sigil method id */
-				return sprintf( __( 'Saving %s failed', 'sigil-2fa' ), $parts[1] ?? '' );
-			case 'user_not_found':
-				return __( 'User not found', 'sigil-2fa' );
 		}
 
-		return $flag;
+		return Import::flag_label( $flag );
 	}
 }

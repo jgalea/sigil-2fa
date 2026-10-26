@@ -165,7 +165,7 @@ final class Backup_Codes implements Provider {
 
 	public function render_challenge( int $user_id ): void {
 		echo '<p><label for="sigil-backup-code">' . esc_html__( 'Backup code', 'sigil-2fa' ) . '</label> ';
-		echo '<input type="text" name="code" id="sigil-backup-code" autocomplete="one-time-code" inputmode="text" autocapitalize="characters" pattern="[A-Za-z0-9\s\-]{8,16}" maxlength="16" spellcheck="false" aria-describedby="sigil-backup-hint" required autofocus />';
+		echo '<input type="text" name="code" id="sigil-backup-code" autocomplete="one-time-code" inputmode="text" autocapitalize="characters" pattern="[A-Za-z0-9\s\-]{8,24}" maxlength="24" spellcheck="false" aria-describedby="sigil-backup-hint" required autofocus />';
 		echo '<span id="sigil-backup-hint" class="sigil-challenge__hint">' . esc_html__( 'Enter one of your backup codes.', 'sigil-2fa' ) . '</span></p>';
 	}
 
@@ -176,12 +176,15 @@ final class Backup_Codes implements Provider {
 		$code = isset( $input['code'] ) ? (string) $input['code'] : '';
 		$code = strtoupper( preg_replace( '/[^A-Z0-9]/i', '', $code ) ?? '' );
 
-		if ( self::CODE_LENGTH !== strlen( $code ) ) {
+		$methods = Store::methods( $user_id );
+		if ( ! isset( $methods[ $this->id() ]['codes'] ) || ! is_array( $methods[ $this->id() ]['codes'] ) ) {
 			return false;
 		}
 
-		$methods = Store::methods( $user_id );
-		if ( ! isset( $methods[ $this->id() ]['codes'] ) || ! is_array( $methods[ $this->id() ]['codes'] ) ) {
+		// Codes imported from another plugin keep that plugin's length, so the
+		// ones its users already printed still work.
+		$length = isset( $methods[ $this->id() ]['length'] ) ? (int) $methods[ $this->id() ]['length'] : self::CODE_LENGTH;
+		if ( $length !== strlen( $code ) ) {
 			return false;
 		}
 
@@ -203,13 +206,8 @@ final class Backup_Codes implements Provider {
 			return false;
 		}
 
-		Store::set_method(
-			$user_id,
-			$this->id(),
-			array(
-				'codes' => $codes,
-			)
-		);
+		$methods[ $this->id() ]['codes'] = $codes;
+		Store::set_method( $user_id, $this->id(), $methods[ $this->id() ] );
 
 		return true;
 	}

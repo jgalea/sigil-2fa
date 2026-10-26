@@ -26,3 +26,4 @@ tests_add_filter( 'muplugins_loaded', '_sigil_manually_load_plugin' );
 
 require $_tests_dir . '/includes/bootstrap.php';
 require_once __DIR__ . '/trait-clears-attempts.php';
+require_once __DIR__ . '/trait-import-fixtures.php';

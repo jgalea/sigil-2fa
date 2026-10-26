@@ -37,7 +37,7 @@ final class Credentials {
 			'sign_count'    => max( 0, $sign_count ),
 			'transports'    => sanitize_text_field( $transports ),
 			'label'         => sanitize_text_field( $label ),
-			'user_handle'   => $user_handle,
+			'user_handle'   => '',
 			'created_at'    => current_time( 'mysql', true ),
 		];
 		$formats = [ '%d', '%s', '%s', '%d', '%s', '%s', '%s', '%s' ];
@@ -55,7 +55,16 @@ final class Credentials {
 			return 0;
 		}
 
-		return (int) $wpdb->insert_id;
+		$id = (int) $wpdb->insert_id;
+
+		// wpdb refuses to insert raw bytes into this column, and an authenticator's
+		// handle is whatever bytes the other plugin generated.
+		if ( '' !== $user_handle ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- plugin-owned table name from Schema::table(), value is prepared
+			$wpdb->query( $wpdb->prepare( 'UPDATE ' . Schema::table() . ' SET user_handle = UNHEX(%s) WHERE id = %d', bin2hex( $user_handle ), $id ) );
+		}
+
+		return $id;
 	}
 
 	/**

@@ -123,13 +123,13 @@ class Test_Two_Factor_Import extends WP_UnitTestCase {
 
 	public function test_unsupported_method_without_email_keeps_two_factor_in_charge(): void {
 		$user = self::factory()->user->create_and_get();
-		update_user_meta( $user->ID, '_two_factor_enabled_providers', array( 'Two_Factor_Totp', 'Two_Factor_FIDO_U2F' ) );
+		update_user_meta( $user->ID, '_two_factor_enabled_providers', array( 'Two_Factor_Totp', 'Acme_Two_Factor_Sms' ) );
 		update_user_meta( $user->ID, '_two_factor_totp_key', self::SECRET );
 
 		$result = Two_Factor_Import::import_user( $user->ID, false );
 		$this->assertSame( array( 'totp' ), $result['imported'] );
 		$this->assertTrue( $result['needs_attention'] );
-		$this->assertContains( 'unsupported_method:two_factor_fido_u2f', $result['flags'] );
+		$this->assertContains( 'unsupported_method:acme_two_factor_sms', $result['flags'] );
 		$this->assertFalse( Providers::instance()->get( 'email' )->is_enrolled( $user->ID ) );
 
 		$this->assertTrue( Providers::instance()->has_usable( $user->ID ) );
@@ -301,5 +301,24 @@ class Test_Two_Factor_Import extends WP_UnitTestCase {
 		$this->assertFalse( apply_filters( 'two_factor_is_required_for_user', true, $with ) );
 		$this->assertTrue( apply_filters( 'two_factor_is_required_for_user', true, $without ) );
 		$this->assertFalse( apply_filters( 'two_factor_is_required_for_user', false, $without ) );
+	}
+
+	public function test_two_factor_keeps_enforcing_where_sigil_does_not_challenge(): void {
+		$user = self::factory()->user->create_and_get();
+		update_user_meta( $user->ID, '_two_factor_enabled_providers', array( 'Two_Factor_Totp' ) );
+		update_user_meta( $user->ID, '_two_factor_totp_key', self::SECRET );
+		Two_Factor_Import::import_user( $user->ID, false );
+
+		$this->assertFalse( apply_filters( 'two_factor_is_required_for_user', true, $user ), 'interactive sign-in: Sigil asks instead' );
+
+		add_filter( 'wp_doing_ajax', '__return_true' );
+		$ajax = apply_filters( 'two_factor_is_required_for_user', true, $user );
+		remove_filter( 'wp_doing_ajax', '__return_true' );
+		$this->assertTrue( $ajax, 'Sigil does not challenge AJAX sign-ins, so Two Factor must' );
+
+		add_filter( 'wp_doing_cron', '__return_true' );
+		$cron = apply_filters( 'two_factor_is_required_for_user', true, $user );
+		remove_filter( 'wp_doing_cron', '__return_true' );
+		$this->assertTrue( $cron );
 	}
 }

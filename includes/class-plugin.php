@@ -72,9 +72,12 @@ final class Plugin {
 		require_once SIGIL_DIR . 'includes/class-frontend.php';
 		Frontend::instance();
 
+		require_once SIGIL_DIR . 'includes/class-import.php';
 		require_once SIGIL_DIR . 'includes/class-two-factor-import.php';
-		require_once SIGIL_DIR . 'includes/class-two-factor-migration.php';
-		Two_Factor_Migration::instance();
+		require_once SIGIL_DIR . 'includes/class-wp-2fa-import.php';
+		require_once SIGIL_DIR . 'includes/class-wordfence-import.php';
+		require_once SIGIL_DIR . 'includes/class-import-migration.php';
+		Import_Migration::instance();
 
 		require_once SIGIL_DIR . 'includes/class-trusted-devices.php';
 		require_once SIGIL_DIR . 'includes/class-zero-setup.php';
