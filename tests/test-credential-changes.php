@@ -157,7 +157,8 @@ class Test_Credential_Changes extends WP_UnitTestCase {
 		$origins['password']['at'] -= 2 * MINUTE_IN_SECONDS;
 		update_user_meta( $user, Step_Up::ORIGIN_META, $origins );
 
-		// Signed in again with it.
+		// Signed in again with it, in a later request.
+		$this->new_request();
 		$this->sign_in( $user, MINUTE_IN_SECONDS );
 
 		$this->assertTrue( Step_Up::prove( $user, array( 'password' => self::NEW ) ) );
@@ -268,5 +269,88 @@ class Test_Credential_Changes extends WP_UnitTestCase {
 		$allowed = rest_do_request( new WP_REST_Request( 'DELETE', '/sigil/v1/users/' . $admin . '/methods' ) );
 		$this->assertSame( 200, $allowed->get_status() );
 		$this->assertFalse( \Sigil\Store::has_any( $admin ) );
+	}
+
+	/**
+	 * Change the password the way a third-party profile editor would, straight
+	 * through wp_update_user, and return the session core re-issues for it.
+	 */
+	private function change_password_directly( int $user_id ): string {
+		$token   = '';
+		$capture = static function ( $cookie, $expire, $expiration, $uid, $scheme, $new_token ) use ( &$token ) {
+			unset( $cookie, $expire, $expiration, $uid, $scheme );
+			$token = (string) $new_token;
+		};
+		add_action( 'set_auth_cookie', $capture, 10, 6 );
+		add_filter( 'send_auth_cookies', '__return_false' );
+
+		wp_update_user(
+			array(
+				'ID'        => $user_id,
+				'user_pass' => self::NEW,
+			)
+		);
+
+		remove_action( 'set_auth_cookie', $capture, 10 );
+		$this->assertNotSame( '', $token, 'core re-issued the session' );
+
+		return $token;
+	}
+
+	private function use_session( int $user_id, string $token ): void {
+		$_COOKIE[ LOGGED_IN_COOKIE ] = wp_generate_auth_cookie( $user_id, time() + DAY_IN_SECONDS, 'logged_in', $token );
+	}
+
+	/**
+	 * As if the request that set the password took a while, so the new
+	 * session's sign-in falls in a later second than the change.
+	 */
+	private function age_password_change( int $user_id ): void {
+		$origins                    = get_user_meta( $user_id, Step_Up::ORIGIN_META, true );
+		$origins['password']['at'] -= 5;
+		update_user_meta( $user_id, Step_Up::ORIGIN_META, $origins );
+	}
+
+	// Core signs the user in again after a password change. It keeps the token
+	// when the request came with a session cookie, and mints a new one when it
+	// did not, say a third-party endpoint authenticated some other way. That
+	// new session signed in after the change, and it set the password all the
+	// same.
+	public function test_the_session_reissued_by_a_password_change_cannot_use_it_as_proof(): void {
+		$user = $this->user();
+		wp_set_current_user( $user );
+
+		$reissued = $this->change_password_directly( $user );
+		$this->age_password_change( $user );
+		$this->use_session( $user, $reissued );
+
+		$this->assertTrue( $this->password_is( $user, self::NEW ) );
+		$this->assertWPError( Step_Up::prove( $user, array( 'password' => self::NEW ) ) );
+	}
+
+	public function test_a_later_sign_in_with_the_changed_password_can_use_it(): void {
+		$user = $this->user();
+		wp_set_current_user( $user );
+		$this->change_password_directly( $user );
+		$this->age_password_change( $user );
+
+		// A new request.
+		$this->new_request();
+
+		$this->sign_in( $user );
+
+		$this->assertTrue( Step_Up::prove( $user, array( 'password' => self::NEW ) ) );
+	}
+
+	/**
+	 * What Step_Up remembers for the length of one request starts empty in
+	 * the next.
+	 */
+	private function new_request(): void {
+		if ( property_exists( Step_Up::class, 'password_set_for' ) ) {
+			$marks = new ReflectionProperty( Step_Up::class, 'password_set_for' );
+			$marks->setAccessible( true );
+			$marks->setValue( null, array() );
+		}
 	}
 }
