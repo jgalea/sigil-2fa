@@ -8,53 +8,66 @@ Stable tag: 0.4.1
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
-Add two-factor authentication to WordPress logins: passkeys, authenticator apps, backup codes and email codes, with per-role enforcement.
+Passkeys and two-factor authentication for WordPress. Sign in without a password, and enrol before you require 2FA by role.
 
 == Description ==
 
-Sigil adds a second authentication step to WordPress logins. Users enrol a passkey, an authenticator app, backup codes or email codes from their profile, and administrators can require 2FA for chosen roles with a grace period.
+Sigil protects WordPress sign-in with passkeys, authenticator apps, backup codes and email codes. Anyone with a passkey can sign in with Face ID, Touch ID, Windows Hello or a security key and skip the password. Administrators can require a second factor for chosen roles, and a short setup wizard gets the first administrator enrolled before anything is enforced.
 
-**Methods**
+= Sign in without a password =
 
-* Passkeys (WebAuthn), using a platform authenticator such as Face ID, Touch ID or Windows Hello, or a hardware security key. Requires PHP 8.0 or newer.
-* Authenticator app (TOTP), compatible with any RFC 6238 application.
-* Backup codes: ten single-use codes, generated the first time any method is set up.
-* Email codes: a six-digit code sent to the account email address.
+The login screen shows a "Sign in with a passkey" button, and browsers that support it offer saved passkeys in the username field. A passkey pairs the device you hold with your fingerprint, face or device PIN, so it counts as the full sign-in on its own. Older security keys that can't store a passkey keep working as a second factor after the password. Passkeys need PHP 8.0 or newer.
 
-**Enforcement**
+= Methods =
+
+* Passkeys (WebAuthn), from a phone, laptop or hardware security key, as a password replacement or as the second step.
+* Authenticator app (TOTP), compatible with any RFC 6238 app. Password managers that store one-time codes can fill it in.
+* Backup codes: ten single-use codes, shown the first time any method is set up.
+* Email codes: a six-digit code sent to the account's email address.
+
+= Enrol before you enforce =
+
+* The wizard walks the first administrator through adding a passkey or an authenticator app and saving backup codes, then offers to require 2FA for roles.
+* Sigil won't let an administrator require 2FA for their own role until they've set up a method themselves.
+* A grace period gives existing users time to enrol before the requirement starts.
+* "Remember this device" skips the second step on a trusted browser for as many days as you allow, and each user can forget their trusted devices at any time.
+
+= Enforcement =
 
 * Require 2FA per role, or for everyone with a chosen capability.
-* Set a grace period so existing users get time to enrol instead of being locked out on the next login.
-* A "2FA" column on the Users screen shows who has set it up and who has not.
+* A "2FA" column on the Users screen shows who has set it up.
+* People who become subject to a requirement get an email with their deadline. Users are emailed when a second factor is added to or removed from their account.
 
-**Enrolment without the dashboard**
+= Protection against password guessing =
 
-Put `[sigil_2fa]` on any page and users can set up and manage their methods there. Sites that keep members out of wp-admin need this, and enforcement redirects to that page when it exists instead of to an admin screen the user cannot open.
+Wrong passwords are counted per account and per IP address, across wp-login.php, XML-RPC, the REST API and AJAX login forms. After five wrong passwords, password sign-in for that account pauses for 15 minutes, and repeat pauses get longer, up to an hour. A passkey still signs the owner in during a pause, and the refusal looks the same whether or not the account exists. Sites that already run another limiter can switch this one off.
 
-**Multisite**
+= WooCommerce and sites without the dashboard =
 
-Accounts are network-wide in WordPress, so second factors are too. An authenticator or backup codes cover every site on the network, the policy is set once under Network Admin, and the rate limiter counts across the network rather than per site. On a network, resetting another user's 2FA is a Network Admin action, which is how WordPress governs user editing there.
+Put `[sigil_2fa]` on any page and users can set up and manage their methods there. Enforcement sends people to that page instead of to an admin screen they can't open. On WooCommerce stores, customers manage two-factor authentication from a tab in My Account.
 
-Passkeys are bound to the domain they were created for, so by default a passkey covers the site it was registered on. A network under one operator can widen that to cover every subdomain site with the `sigil_rp_id` filter. It is opt-in because widening lets any site under that domain request assertions, which matters when sites have different administrators.
+= Multisite =
 
-**REST API**
+Accounts are network-wide in WordPress, so second factors are too. An authenticator or backup codes cover every site on the network, the policy is set once under Network Admin, and wrong second-factor codes are counted across the network. Resetting another user's 2FA is a Network Admin action there, which is how WordPress governs user editing on a network.
 
-Routes under `sigil/v1` read a user's methods, reset or remove them, read and edit the policy, and describe or complete a pending login challenge so a decoupled front end can run the second step itself. The challenge routes are authenticated by the challenge token issued after the password step. Reading and changing anything else requires the same capability as the equivalent screen.
+Passkeys are bound to the domain they were created for, so by default a passkey covers the site it was registered on. A network under one operator can widen that to every subdomain site with the `sigil_rp_id` filter. It's opt-in because widening lets any site under that domain request passkey sign-ins, which matters when sites have different administrators.
 
-This does not add a second factor to token authentication. A request that authenticates with an application password never reaches the interactive login, so it is not challenged.
+= REST API =
 
-**Recovery**
+A decoupled front end can handle sign-in itself through routes under `sigil/v1`. They run the passwordless passkey sign-in and the login challenge, read, reset or remove a user's methods, and read and edit the policy. The challenge routes are authenticated by the token issued after the password step. Everything else needs the same capability as the matching screen.
 
-Three ways back in if a second factor is lost:
+= Recovery =
 
-* Backup codes are generated and displayed at first enrolment.
+Several ways back in if a second factor is lost:
+
+* Backup codes, saved at setup.
 * A user with the `edit_users` capability can reset another user's 2FA from the Users screen.
-* `wp sigil reset <user>` clears a user's second factor from the command line when no one can reach the dashboard.
+* `wp sigil reset <user>` clears a user's second factor from the command line when nobody can reach the dashboard.
 * `wp sigil unlock <user> [--ip=<address>] [--challenge]` reopens password sign-in for an account paused by too many wrong passwords.
 
-**Application passwords**
+= Application passwords =
 
-Two-factor authentication does not apply to application passwords, which authenticate REST API and XML-RPC requests. The settings screen documents this, and application passwords can be disabled per role.
+Two-factor authentication doesn't apply to application passwords, which authenticate REST API and XML-RPC requests. The settings screen explains this, and application passwords can be disabled per role. The account password itself is refused on XML-RPC and REST for anyone with a second factor, because those requests never reach the second step.
 
 == Third-party libraries ==
 
@@ -101,15 +114,26 @@ Yes. The policy is set once for the network under Network Admin → Settings →
 
 Yes. Put `[sigil_2fa]` on a page. Users manage their methods from there, and anyone required to enrol is sent to that page rather than to the dashboard.
 
-= Can I switch from the Two Factor plugin? =
+= Can I switch from another two-factor plugin? =
 
-Yes. With both plugins active, open Settings → Sigil and use Import from Two Factor, or run `wp sigil import two-factor` (add `--dry-run` to preview). Email codes, authenticator apps and backup codes come across, so people keep signing in with the same app. Anyone with a method that cannot be carried over is listed in the report, and Two Factor keeps protecting them while it stays active. Two Factor's own data is not changed. Once everyone on that list has set up a method in Sigil, deactivate Two Factor.
+Yes. Sigil imports from Two Factor (including passkeys from the WebAuthn Provider for Two Factor), Wordfence and WP 2FA. With both plugins active, open Settings → Sigil and choose the import, or run `wp sigil import <two-factor|wordfence|wp-2fa>` (add `--dry-run` to preview). Authenticator apps, passkeys, email codes and backup or recovery codes come across, so people keep signing in the way they already do. Anyone with a method that can't be carried over is listed in the report, and the old plugin keeps protecting them while it stays active. The old plugin's data is never changed. Once everyone on that list has set up a method in Sigil, deactivate the old plugin.
 
 = Can I enforce 2FA only for administrators? =
 
 Yes. Settings → Sigil lets you pick exactly which roles are required, and set a grace period so people are prompted to enrol rather than locked out immediately.
 
 == Changelog ==
+
+= 0.5.0 =
+* New: sign in with a passkey and no password, from a button on the login screen or the browser's passkey suggestions.
+* New: a setup wizard, and Sigil won't let you require 2FA for your own role before you've set up a method.
+* New: remember this device, the WooCommerce My Account tab and the email-code fallback are now in the free plugin.
+* New: limits on wrong passwords per account and per IP address, with `wp sigil unlock` to reopen an account.
+* New: import passkeys, authenticator apps and backup codes from other two-factor plugins (see the FAQ).
+* New: password managers can fill authenticator codes, and pasted codes with spaces or dashes work.
+* Improved: the two-factor screen works from the keyboard alone, and wrong-code errors are announced to screen readers.
+* Fixed: changing your password from a front-end form, such as WooCommerce's account page, no longer signs you out.
+* Sigil Pro is now a separate add-on. If you used the combined Pro build, install the new Sigil Pro add-on alongside Sigil; your settings carry over.
 
 = 0.4.1 =
 * Security: a password alone no longer creates a session before the second step. Please update.
