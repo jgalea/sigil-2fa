@@ -161,12 +161,36 @@ final class Step_Up {
 		}
 		update_user_meta( $user_id, self::ORIGIN_META, $origins );
 
+		self::spend( $user_id );
+	}
+
+	/**
+	 * Note that factors were removed, and spend a proof that was not the
+	 * password, so one code cannot clear an account's methods one by one.
+	 *
+	 * @param list<string> $factors Keys as in ORIGIN_META.
+	 */
+	public static function removed( int $user_id, array $factors ): void {
+		$origins = self::origins( $user_id );
+		foreach ( $factors as $factor ) {
+			unset( $origins[ $factor ] );
+		}
+
+		if ( array() === $origins ) {
+			delete_user_meta( $user_id, self::ORIGIN_META );
+		} else {
+			update_user_meta( $user_id, self::ORIGIN_META, $origins );
+		}
+
+		self::spend( $user_id );
+	}
+
+	private static function spend( int $user_id ): void {
 		if ( (int) get_current_user_id() !== $user_id || self::proven_by_password( $user_id ) ) {
 			return;
 		}
 
-		$key = self::request_key( $user_id );
-		unset( self::$proven[ $key ] );
+		unset( self::$proven[ self::request_key( $user_id ) ] );
 		self::stamp( $user_id, self::SESSION_KEY, 0 );
 	}
 

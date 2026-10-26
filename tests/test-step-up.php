@@ -484,4 +484,47 @@ class Test_Step_Up extends WP_UnitTestCase {
 		$origins[ $factor ]['at'] = $at;
 		update_user_meta( $user, Step_Up::ORIGIN_META, $origins );
 	}
+
+	private function with_three_methods( int $user ): void {
+		$this->with_totp( $user );
+		Store::set_method( $user, 'email', array( 'enrolled_at' => time() ) );
+		Enrolment::instance()->ensure_backup_codes( $user );
+	}
+
+	public function test_one_authenticator_proof_removes_one_method(): void {
+		$user = $this->user();
+		$this->with_three_methods( $user );
+		$this->sign_in( $user, self::STALE );
+
+		$this->assertTrue( Step_Up::prove( $user, array( 'code' => \Sigil\Providers\TOTP::code_at( self::SECRET, time() ) ) ) );
+		$this->assertTrue( Enrolment::instance()->remove_method( $user, 'email' ) );
+
+		$again = Enrolment::instance()->remove_method( $user, 'backup' );
+		$this->assertWPError( $again );
+		$this->assertSame( 'sigil_step_up_required', $again->get_error_code() );
+		$this->assertArrayHasKey( 'backup', Store::methods( $user ) );
+	}
+
+	public function test_a_password_proof_removes_several(): void {
+		$user = $this->user();
+		$this->with_three_methods( $user );
+		$this->sign_in( $user, self::STALE );
+
+		$this->assertTrue( Step_Up::prove( $user, array( 'password' => self::PASS ) ) );
+		$this->assertTrue( Enrolment::instance()->remove_method( $user, 'email' ) );
+		$this->assertTrue( Enrolment::instance()->remove_method( $user, 'backup' ) );
+	}
+
+	public function test_removing_a_method_forgets_when_it_was_set_up(): void {
+		$user = $this->user();
+		$this->sign_in( $user );
+		$this->enrol_totp_through_the_screen( $user );
+		Store::set_method( $user, 'email', array( 'enrolled_at' => time() ) );
+		$this->assertArrayHasKey( 'totp', get_user_meta( $user, Step_Up::ORIGIN_META, true ) );
+
+		$this->assertTrue( Step_Up::prove( $user, array( 'password' => self::PASS ) ) );
+		$this->assertTrue( Enrolment::instance()->remove_method( $user, 'totp' ) );
+
+		$this->assertSame( '', get_user_meta( $user, Step_Up::ORIGIN_META, true ) );
+	}
 }

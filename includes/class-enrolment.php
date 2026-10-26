@@ -343,6 +343,15 @@ final class Enrolment {
 			);
 		}
 
+		$factors = array();
+		if ( 'totp' === $provider_id ) {
+			$factors[] = 'totp';
+		} elseif ( 'passkey' === $provider_id ) {
+			foreach ( self::credential_ids( $user_id ) as $id ) {
+				$factors[] = 'passkey:' . $id;
+			}
+		}
+
 		$provider = Providers::instance()->get( $provider_id );
 		if ( $provider ) {
 			$provider->unenrol( $user_id );
@@ -355,6 +364,8 @@ final class Enrolment {
 		}
 
 		do_action( 'sigil_methods_changed', $user_id );
+
+		Step_Up::removed( $user_id, $factors );
 
 		return true;
 	}
