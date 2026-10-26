@@ -142,14 +142,9 @@ final class Recovery {
 			return $actions;
 		}
 
-		$url = wp_nonce_url(
-			admin_url( 'admin-post.php?action=sigil_reset_user&user_id=' . (int) $user->ID ),
-			'sigil_reset_user_' . (int) $user->ID
-		);
+		$url = self::reset_url( (int) $user->ID );
 
-		$confirm = esc_js(
-			__( 'Reset two-factor authentication for this user? Their enrolled methods will be removed and their sessions will end.', 'sigil-2fa' )
-		);
+		$confirm = esc_js( self::reset_confirmation() );
 
 		$actions['sigil_reset'] = sprintf(
 			'<a class="sigil-reset-2fa" href="%1$s" onclick="return confirm( \'%2$s\' );">%3$s</a>',
@@ -159,6 +154,21 @@ final class Recovery {
 		);
 
 		return $actions;
+	}
+
+	/**
+	 * The nonce-checked link that resets someone's 2FA. A link rather than a
+	 * form, so it can sit inside screens that are forms already.
+	 */
+	public static function reset_url( int $user_id ): string {
+		return wp_nonce_url(
+			admin_url( 'admin-post.php?action=sigil_reset_user&user_id=' . $user_id ),
+			'sigil_reset_user_' . $user_id
+		);
+	}
+
+	public static function reset_confirmation(): string {
+		return __( 'Reset two-factor authentication for this user? Their enrolled methods will be removed and their sessions will end.', 'sigil-2fa' );
 	}
 
 	public function handle_reset(): void {

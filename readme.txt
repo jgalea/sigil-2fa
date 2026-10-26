@@ -137,6 +137,7 @@ Yes. Settings → Sigil lets you pick exactly which roles are required, and set 
 * Improved: a passkey an administrator registers for someone else works only after their password, never on its own.
 * Improved: the two-factor screen works from the keyboard alone, and wrong-code errors are announced to screen readers.
 * Fixed: changing your password from a front-end form, such as WooCommerce's account page, no longer signs you out.
+* Fixed: the two-factor section on the profile screen could stop the profile from saving. It's now a summary with a link to the two-factor page.
 * Fixed: registering a passkey now sends the change email and forgets trusted devices, like every other method.
 * Fixed: a remembered device gets past a password lockout, so someone guessing can't keep you out.
 * Fixed: anonymous requests for passkey sign-in options are limited per IP address.

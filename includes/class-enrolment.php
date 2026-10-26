@@ -46,13 +46,9 @@ final class Enrolment {
 	 * @param string $hook_suffix Current admin page hook.
 	 */
 	public function enqueue_assets( string $hook_suffix ): void {
-		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-		$load   = false;
+		$load = false;
 
 		if ( is_string( $hook_suffix ) && false !== strpos( $hook_suffix, self::PAGE_SLUG ) ) {
-			$load = true;
-		}
-		if ( $screen && in_array( $screen->id, array( 'profile', 'user-edit' ), true ) ) {
 			$load = true;
 		}
 
@@ -115,6 +111,11 @@ final class Enrolment {
 	}
 
 	/**
+	 * A summary only. The profile screen is one big form, and a form inside it
+	 * is dropped by the browser, so any button here would submit the profile
+	 * instead of doing what it says. Changes happen on the setup page, and an
+	 * administrator's reset is a link.
+	 *
 	 * @param \WP_User $user Profile user.
 	 */
 	public function render_profile_section( $user ): void {
@@ -127,8 +128,43 @@ final class Enrolment {
 			return;
 		}
 
+		$labels = array();
+		foreach ( Providers::instance()->enrolled_for( $user_id ) as $provider ) {
+			$labels[] = $provider->label();
+		}
+		$preferred = array() !== $labels ? Providers::instance()->preferred_for( $user_id ) : null;
+		$devices   = Trusted_Devices::instance()->count_for( $user_id );
+
 		echo '<h2>' . esc_html__( 'Two-Factor Authentication', 'sigil-2fa' ) . '</h2>';
-		$this->render_enrol_ui( $user_id, false );
+		echo '<table class="form-table sigil-profile" role="presentation"><tbody>';
+
+		echo '<tr><th scope="row">' . esc_html__( 'Methods', 'sigil-2fa' ) . '</th><td>';
+		echo esc_html( array() !== $labels ? implode( ', ', $labels ) : __( 'None set up yet.', 'sigil-2fa' ) );
+		echo '</td></tr>';
+
+		if ( null !== $preferred ) {
+			echo '<tr><th scope="row">' . esc_html__( 'Asked for first', 'sigil-2fa' ) . '</th><td>' . esc_html( $preferred->label() ) . '</td></tr>';
+		}
+
+		echo '<tr><th scope="row">' . esc_html__( 'Trusted devices', 'sigil-2fa' ) . '</th><td>';
+		echo esc_html(
+			sprintf(
+				/* translators: %d: number of trusted devices */
+				_n( '%d trusted device', '%d trusted devices', $devices, 'sigil-2fa' ),
+				$devices
+			)
+		);
+		echo '</td></tr>';
+
+		echo '<tr><th scope="row"></th><td>';
+		if ( (int) get_current_user_id() === $user_id ) {
+			echo '<a class="button" href="' . esc_url( admin_url( 'users.php?page=' . self::PAGE_SLUG ) ) . '">' . esc_html__( 'Manage two-factor authentication', 'sigil-2fa' ) . '</a>';
+		} elseif ( current_user_can( 'edit_users' ) && array() !== $labels ) {
+			echo '<a class="button sigil-reset-2fa" href="' . esc_url( Recovery::reset_url( $user_id ) ) . '" onclick="return confirm( \'' . esc_js( Recovery::reset_confirmation() ) . '\' );">' . esc_html__( 'Reset two-factor authentication', 'sigil-2fa' ) . '</a>';
+		}
+		echo '</td></tr>';
+
+		echo '</tbody></table>';
 	}
 
 	/**

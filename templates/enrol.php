@@ -37,10 +37,6 @@ $passkey_proof = ! empty( $passkey_proof );
 $own_account   = ! empty( $own_account );
 $trusted_count = isset( $trusted_count ) ? (int) $trusted_count : 0;
 $post_url      = admin_url( 'admin-post.php' );
-// The profile screen draws this inside its own form, where a form of ours
-// would be swallowed by it, so the forms added for confirming and for
-// forgetting devices live on the two-factor page and the front-end page.
-$standalone    = $is_setup_page || ! is_admin();
 ?>
 <div class="sigil-enrol<?php echo $is_setup_page ? ' wrap' : ''; ?>">
 	<?php if ( $is_setup_page ) : ?>
@@ -162,11 +158,7 @@ $standalone    = $is_setup_page || ! is_admin();
 			<?php else : ?>
 				<p><?php echo esc_html( \Sigil\Step_Up::passkey_reason() ); ?></p>
 			<?php endif; ?>
-			<?php if ( ! $standalone ) : ?>
-				<p><a class="button" href="<?php echo esc_url( admin_url( 'users.php?page=' . \Sigil\Enrolment::PAGE_SLUG . '&method=' . $active ) ); ?>"><?php echo esc_html__( 'Confirm on the two-factor page', 'sigil-2fa' ); ?></a></p>
-			<?php else : ?>
-				<?php \Sigil\Enrolment::instance()->render_step_up_form( $user_id, $active ); ?>
-			<?php endif; ?>
+			<?php \Sigil\Enrolment::instance()->render_step_up_form( $user_id, $active ); ?>
 		</div>
 	<?php elseif ( $active_provider ) : ?>
 		<div class="sigil-enrol__panel" data-provider="<?php echo esc_attr( $active_provider->id() ); ?>">
@@ -271,7 +263,7 @@ $standalone    = $is_setup_page || ! is_admin();
 		</div>
 	<?php endif; ?>
 
-	<?php if ( $standalone && $own_account && $trusted_count > 0 ) : ?>
+	<?php if ( $own_account && $trusted_count > 0 ) : ?>
 		<div class="sigil-enrol__devices">
 			<form method="post" action="<?php echo esc_url( $post_url ); ?>" class="sigil-enrol__form">
 				<input type="hidden" name="action" value="sigil_forget_devices" />
