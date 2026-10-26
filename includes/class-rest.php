@@ -308,6 +308,9 @@ final class REST {
 		if ( isset( $body['passwordless'] ) ) {
 			$patch['passwordless'] = (bool) $body['passwordless'];
 		}
+		if ( isset( $body['limit_passwords'] ) ) {
+			$patch['limit_passwords'] = (bool) $body['limit_passwords'];
+		}
 		if ( isset( $body['grace_days'] ) ) {
 			$patch['grace_days'] = max( 0, (int) $body['grace_days'] );
 		}

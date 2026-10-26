@@ -49,11 +49,13 @@ final class Plugin {
 		require_once SIGIL_DIR . 'includes/class-users-column.php';
 		require_once SIGIL_DIR . 'includes/class-app-passwords.php';
 		require_once SIGIL_DIR . 'includes/class-login-guard.php';
+		require_once SIGIL_DIR . 'includes/class-password-limit.php';
 
 		Settings::instance();
 		Users_Column::instance();
 		App_Passwords::instance();
 		Login_Guard::instance();
+		Password_Limit::instance();
 
 		require_once SIGIL_DIR . 'includes/class-enrolment.php';
 		Enrolment::instance();

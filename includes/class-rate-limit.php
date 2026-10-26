@@ -85,7 +85,7 @@ final class Rate_Limit {
 	 * Callers decide with this rather than with a separate read, because a read
 	 * followed by a write is the thing being avoided.
 	 */
-	public static function reserve( string $key ): int {
+	public static function reserve( string $key, int $window = self::WINDOW ): int {
 		if ( '' === $key ) {
 			return 0;
 		}
@@ -95,7 +95,7 @@ final class Rate_Limit {
 		$table  = self::table();
 		$bucket = self::bucket( $key );
 		$now    = time();
-		$expiry = $now + self::WINDOW;
+		$expiry = $now + max( 1, $window );
 
 		// One statement: insert the first attempt, or add one to an existing
 		// window, or start a fresh window if the old one has run out.
@@ -145,6 +145,37 @@ final class Rate_Limit {
 		$count = (int) $wpdb->insert_id;
 
 		return $count > 0 ? $count : self::count( $key );
+	}
+
+	/**
+	 * Give back one attempt taken by reserve(), for a request that turned out
+	 * not to be a guess. One statement, for the same reason reserve() is.
+	 */
+	public static function release( string $key ): void {
+		if ( '' === $key ) {
+			return;
+		}
+
+		global $wpdb;
+
+		$table = self::table();
+
+		self::run( $wpdb->prepare( "UPDATE {$table} SET attempts = attempts - 1 WHERE bucket = %s AND attempts > 0", self::bucket( $key ) ) );
+	}
+
+	/**
+	 * Keep a bucket closed until at least this time. Never shortens it.
+	 */
+	public static function extend( string $key, int $until ): void {
+		if ( '' === $key ) {
+			return;
+		}
+
+		global $wpdb;
+
+		$table = self::table();
+
+		self::run( $wpdb->prepare( "UPDATE {$table} SET expires = GREATEST( expires, %d ) WHERE bucket = %s", $until, self::bucket( $key ) ) );
 	}
 
 	public static function max_attempts(): int {

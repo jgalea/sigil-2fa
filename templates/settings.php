@@ -143,6 +143,19 @@ $locked_out = ! empty( $locked_out );
 			</tr>
 
 			<tr>
+				<th scope="row"><?php echo esc_html__( 'Limit password attempts', 'sigil-2fa' ); ?></th>
+				<td>
+					<label>
+						<input type="checkbox" name="sigil_policy[limit_passwords]" value="1" <?php checked( ! empty( $policy['limit_passwords'] ) ); ?> />
+						<?php echo esc_html__( 'Pause password sign-in for an account or address after repeated wrong passwords', 'sigil-2fa' ); ?>
+					</label>
+					<p class="description">
+						<?php echo esc_html__( 'Five wrong passwords for an account pause it for 15 minutes, longer if it keeps happening, up to an hour. Signing in with a passkey still works. Turn this off if another plugin or your host already limits login attempts.', 'sigil-2fa' ); ?>
+					</p>
+				</td>
+			</tr>
+
+			<tr>
 				<th scope="row"><?php echo esc_html__( 'Disable application passwords', 'sigil-2fa' ); ?></th>
 				<td>
 					<?php if ( array() === $roles ) : ?>

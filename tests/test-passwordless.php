@@ -321,6 +321,18 @@ class Test_Passwordless extends WP_UnitTestCase {
 		$this->assertSame( array( false ), $sent );
 	}
 
+	public function test_a_passkey_still_signs_in_an_account_locked_by_wrong_passwords(): void {
+		\Sigil\Password_Limit::instance();
+		\Sigil\Policy::update( array( 'limit_passwords' => true ) );
+		$login = get_userdata( $this->user_id )->user_login;
+		for ( $i = 0; $i < 6; $i++ ) {
+			wp_authenticate( $login, 'wrong-password' );
+		}
+		$this->assertSame( 'sigil_password_limited', wp_authenticate( $login, 'wrong-password' )->get_error_code() );
+
+		$this->assertInstanceOf( WP_User::class, $this->sign_on( $this->signed() ) );
+	}
+
 	/** @var list<bool> */
 	private array $sent_cookies = array();
 

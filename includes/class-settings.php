@@ -108,6 +108,7 @@ final class Settings {
 			'grace_days'          => $grace,
 			'block_app_passwords' => $block_in,
 			'passwordless'        => ! empty( $raw['passwordless'] ),
+			'limit_passwords'     => ! empty( $raw['limit_passwords'] ),
 		);
 
 		if ( Policy::would_lock_out( get_current_user_id(), $patch ) ) {
