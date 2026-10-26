@@ -425,15 +425,17 @@ scenario_upgrade() {
 	fi
 	check "active plugin version is $ZIP_VERSION" "$([ "$(wp plugin get sigil-2fa --field=version 2>/dev/null)" = "$ZIP_VERSION" ] && echo 0 || echo 1)"
 
-	# The schema upgrade hooks admin_init, so it runs on the first admin request.
+	# The schema upgrade runs on init, so the first request of any kind applies it.
 	login
 	check_admin
 	cols_after="$(state columns)"
 	check "schema upgrade ran: db version $(state db_version) = $ZIP_VERSION" "$([ "$(state db_version)" = "$ZIP_VERSION" ] && echo 0 || echo 1)"
-	if [ "$old" != "$ZIP_VERSION" ]; then
-		check "credential table gained columns ($(comm -13 <(printf '%s\n' "$cols_before" | tr ',' '\n' | sort) <(printf '%s\n' "$cols_after" | tr ',' '\n' | sort) | tr '\n' ' '))" \
-			"$([ -n "$(comm -13 <(printf '%s\n' "$cols_before" | tr ',' '\n' | sort) <(printf '%s\n' "$cols_after" | tr ',' '\n' | sort))" ] && echo 0 || echo 1)"
-	fi
+	# Not every upgrade adds columns, so check the table has what this version needs.
+	local missing="" col
+	for col in user_handle discoverable second_factor_only; do
+		printf '%s\n' "$cols_after" | tr ',' '\n' | grep -qx "$col" || missing="$missing $col"
+	done
+	check "credential table has the current columns${missing:+ (missing:$missing)}" "$([ -z "$missing" ] && echo 0 || echo 1)"
 	check "no credential column was lost" "$([ -z "$(comm -23 <(printf '%s\n' "$cols_before" | tr ',' '\n' | sort) <(printf '%s\n' "$cols_after" | tr ',' '\n' | sort))" ] && echo 0 || echo 1)"
 	check "policy survived (enabled $(state policy_enabled), grace $(state policy_grace), editors $(state policy_editor))" "$([ "$(state policy_enabled)" = "1" ] && [ "$(state policy_grace)" = "11" ] && [ "$(state policy_editor)" = "1" ] && echo 0 || echo 1)"
 	check "settings survived (trusted device days $(state trusted_days))" "$([ "$(state trusted_days)" = "21" ] && echo 0 || echo 1)"
