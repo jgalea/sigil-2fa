@@ -1,0 +1,35 @@
+services:
+  db:
+    image: mysql:8.0
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: wp
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+  wordpress:
+    image: wordpress:php${SMOKE_PHP}-apache
+    depends_on:
+      db: { condition: service_healthy }
+    ports: ["${SMOKE_PORT}:${SMOKE_PORT}"]
+    volumes:
+      - html:/var/www/html
+      - ./zips:/zips:ro
+      - ./apache-port.conf:/etc/apache2/conf-enabled/smoke-port.conf:ro
+  # Shares the web container's network so the site's own address,
+  # localhost:${SMOKE_PORT}, resolves to Apache for loopback requests too.
+  cli:
+    image: wordpress:cli-php${SMOKE_PHP}
+    user: "33:33"
+    network_mode: "service:wordpress"
+    depends_on: [wordpress]
+    command: sleep infinity
+    volumes:
+      - html:/var/www/html
+      - ./zips:/zips:ro
+      - ./smoke:/smoke:ro
+volumes:
+  html:

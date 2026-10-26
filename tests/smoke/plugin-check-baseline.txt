@@ -1,0 +1,3 @@
+# count check code file
+2 plugin_review_phpcs WordPress.DB.PreparedSQL.NotPrepared includes/class-credentials.php
+4 plugin_review_phpcs WordPress.DB.PreparedSQL.NotPrepared includes/class-wordfence-import.php
