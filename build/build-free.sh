@@ -103,7 +103,7 @@ for file in "${REQUIRED[@]}"; do
 done
 
 # Nothing from the development tree should reach the package.
-for unwanted in tests e2e pro node_modules .git .github .claude .impeccable build dist \
+for unwanted in tests e2e node_modules .git .github .claude .impeccable build dist \
                 package.json composer.json phpunit.xml.dist phpunit-multisite.xml.dist \
                 .phpunit.result.cache playwright.config.ts .distignore; do
   if [ -e "$DIST/sigil-2fa/$unwanted" ]; then
