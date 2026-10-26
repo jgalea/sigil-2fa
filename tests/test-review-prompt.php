@@ -128,6 +128,11 @@ class Test_Review_Prompt extends WP_UnitTestCase {
 		$this->assertTrue( Review_Prompt::eligible( $two ) );
 	}
 
+	public function tear_down(): void {
+		\Sigil\Network::delete_option( \Sigil\Wizard::OPTION );
+		parent::tear_down();
+	}
+
 	public function test_an_unknown_choice_changes_nothing(): void {
 		$id = $this->admin();
 
@@ -139,9 +144,20 @@ class Test_Review_Prompt extends WP_UnitTestCase {
 		$id = $this->admin();
 
 		$this->assertStringContainsString( 'Sigil is protecting your login', $this->render_for( $id, 'dashboard' ) );
+		\Sigil\Store::set_method( $id, 'totp', array( 'secret' => 'x' ) );
 		$this->assertStringContainsString( 'Sigil is protecting your login', $this->render_for( $id, 'settings_page_sigil-2fa' ) );
 		$this->assertSame( '', $this->render_for( $id, 'plugins' ) );
 		$this->assertSame( '', $this->render_for( $id, 'options-general' ) );
+	}
+
+	public function test_it_waits_while_the_setup_nudge_is_on_the_screen(): void {
+		$id = $this->admin();
+
+		$this->assertSame( '', $this->render_for( $id, 'settings_page_sigil-2fa' ) );
+		$this->assertStringContainsString( 'Sigil is protecting your login', $this->render_for( $id, 'dashboard' ) );
+
+		\Sigil\Network::update_option( \Sigil\Wizard::OPTION, true );
+		$this->assertStringContainsString( 'Sigil is protecting your login', $this->render_for( $id, 'settings_page_sigil-2fa' ) );
 	}
 
 	public function test_the_first_sentence_names_the_factor_used(): void {

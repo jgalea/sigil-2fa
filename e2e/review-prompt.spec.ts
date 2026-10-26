@@ -59,6 +59,7 @@ test('shows on the Sigil screen and the Dashboard after a 2FA sign-in', async ({
 	await expect(notice).toContainText('Sigil is protecting your login');
 	await expect(notice).toContainText('You just signed in with your authenticator app.');
 	await expect(notice).toContainText('a short review on WordPress.org helps other site owners find it.');
+	await expect(page.locator('.notice', { hasText: 'not yet set up' })).toHaveCount(0);
 
 	await page.goto('/wp-admin/');
 	await expect(page.locator(NOTICE)).toBeVisible();

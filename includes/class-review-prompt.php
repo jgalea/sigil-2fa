@@ -129,7 +129,8 @@ final class Review_Prompt {
 
 	public function render(): void {
 		$user_id = get_current_user_id();
-		if ( ! self::on_allowed_screen() || ! self::eligible( $user_id ) ) {
+		// The setup nudge says nothing is set up yet, which would contradict this.
+		if ( ! self::on_allowed_screen() || ! self::eligible( $user_id ) || Wizard::nudge_showing( $user_id ) ) {
 			return;
 		}
 
