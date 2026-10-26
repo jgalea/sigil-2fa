@@ -520,4 +520,43 @@ class Test_Passwordless extends WP_UnitTestCase {
 		$this->assertSame( 429, $response->get_status() );
 		$this->assertIsArray( $elsewhere, 'another address is not affected' );
 	}
+
+	// With no address to go on, every such request shares one allowance
+	// rather than having none.
+	public function test_requests_with_no_address_share_one_allowance(): void {
+		$previous = $_SERVER['REMOTE_ADDR'] ?? null;
+		unset( $_SERVER['REMOTE_ADDR'] );
+
+		$minted = 0;
+		for ( $i = 0; $i < 200; $i++ ) {
+			if ( null !== Sigil\Passwordless::instance()->mint() ) {
+				++$minted;
+			}
+		}
+
+		$_SERVER['REMOTE_ADDR'] = $previous;
+
+		$this->assertLessThan( 200, $minted );
+	}
+
+	// One IPv6 subscriber is usually handed a whole /64, so counting each
+	// address apart gives them as many allowances as they care to use.
+	public function test_addresses_in_one_ipv6_64_share_an_allowance(): void {
+		$previous = $_SERVER['REMOTE_ADDR'] ?? null;
+
+		$minted = 0;
+		for ( $i = 1; $i <= 200; $i++ ) {
+			$_SERVER['REMOTE_ADDR'] = '2001:db8:aa:bb::' . dechex( $i );
+			if ( null !== Sigil\Passwordless::instance()->mint() ) {
+				++$minted;
+			}
+		}
+
+		$_SERVER['REMOTE_ADDR'] = '2001:db8:aa:cc::1';
+		$elsewhere              = Sigil\Passwordless::instance()->mint();
+		$_SERVER['REMOTE_ADDR'] = $previous;
+
+		$this->assertLessThan( 200, $minted );
+		$this->assertIsArray( $elsewhere, 'the next /64 is someone else' );
+	}
 }
