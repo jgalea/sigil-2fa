@@ -13,7 +13,7 @@ final class Schema {
 	public static function instance(): Schema {
 		if ( null === self::$instance ) {
 			self::$instance = new self();
-			add_action( 'admin_init', array( self::$instance, 'maybe_install' ) );
+			add_action( 'init', array( self::$instance, 'maybe_install' ), 1 );
 		}
 		return self::$instance;
 	}
@@ -21,8 +21,9 @@ final class Schema {
 	// The activation hook is not enough on its own: a half-failed activation, a
 	// dropped table, or a site that never fired the hook (some CLI installs)
 	// would leave the credentials table missing forever, and every passkey read
-	// would throw. A passkey credential can only be created during admin
-	// enrolment, so checking here guarantees the table exists before one can.
+	// would throw. An update also adds columns. Passkeys are registered from the
+	// front-end enrolment page and used at sign-in, both before any admin visit,
+	// so the check runs on every request; it is one cached option read.
 	public function maybe_install(): void {
 		if ( Network::get_option( 'sigil_db_version' ) !== SIGIL_VERSION ) {
 			self::install();
