@@ -189,6 +189,22 @@ class Test_Credential_Changes extends WP_UnitTestCase {
 		$this->assertSame( 403, $response->get_status() );
 	}
 
+	// Core matches routes case-insensitively, so a differently cased route
+	// reaches the same handler.
+	public function test_rest_password_change_through_a_differently_cased_route_is_refused(): void {
+		$user = $this->user();
+		$this->sign_in( $user, self::STALE );
+
+		foreach ( array( '/wp/v2/users/ME', '/WP/V2/USERS/me', '/wp/v2/Users/' . $user ) as $route ) {
+			$request = new WP_REST_Request( 'POST', $route );
+			$request->set_param( 'password', self::NEW );
+			$response = rest_do_request( $request );
+
+			$this->assertSame( 403, $response->get_status(), $route );
+		}
+		$this->assertTrue( $this->password_is( $user, self::PASS ) );
+	}
+
 	public function test_rest_changes_to_anything_else_go_through(): void {
 		$user = $this->user();
 		$this->sign_in( $user, self::STALE );

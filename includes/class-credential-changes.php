@@ -117,7 +117,11 @@ final class Credential_Changes {
 	}
 
 	/**
-	 * Updates through wp/v2/users/me or wp/v2/users/<own id>.
+	 * Updates through the core users controller, for wp/v2/users/me or a user id.
+	 *
+	 * Decided on the handler the server dispatched to rather than the route the
+	 * client sent: core matches routes case-insensitively, so /wp/v2/users/ME
+	 * reaches the same handler while slipping past a path pattern.
 	 *
 	 * @param mixed            $response
 	 * @param mixed            $handler
@@ -125,17 +129,16 @@ final class Credential_Changes {
 	 * @return mixed
 	 */
 	public function rest_check( $response, $handler, $request ) {
-		unset( $handler );
-
 		if ( null !== $response || ! $request instanceof \WP_REST_Request || in_array( $request->get_method(), array( 'GET', 'HEAD', 'DELETE', 'OPTIONS' ), true ) ) {
 			return $response;
 		}
 
-		if ( ! preg_match( '#^/wp/v2/users/(me|\d+)/?$#', $request->get_route(), $match ) ) {
+		$callback = is_array( $handler ) && isset( $handler['callback'] ) ? $handler['callback'] : null;
+		if ( ! is_array( $callback ) || ! $callback[0] instanceof \WP_REST_Users_Controller || ! in_array( $callback[1], array( 'update_item', 'update_current_item' ), true ) ) {
 			return $response;
 		}
 
-		$user_id = 'me' === $match[1] ? (int) get_current_user_id() : (int) $match[1];
+		$user_id = 'update_current_item' === $callback[1] ? (int) get_current_user_id() : (int) $request->get_param( 'id' );
 		$current = get_userdata( $user_id );
 		if ( ! $current instanceof \WP_User ) {
 			return $response;
