@@ -56,6 +56,8 @@ final class Credential_Changes {
 		add_action( 'woocommerce_save_account_details_errors', array( $this, 'woocommerce_errors' ), 10, 2 );
 		add_action( 'profile_update', array( $this, 'note_profile_password' ), 10, 2 );
 		add_action( 'wp_set_password', array( $this, 'note_set_password' ), 10, 3 );
+		add_filter( 'attach_session_information', array( $this, 'mark_session' ), 10, 2 );
+		add_action( 'set_auth_cookie', array( $this, 'note_reissued' ), 10, 6 );
 	}
 
 	/**
@@ -202,5 +204,27 @@ final class Credential_Changes {
 		}
 
 		Step_Up::password_changed( (int) $user_id );
+	}
+
+	/**
+	 * @param array<string, mixed> $session
+	 * @param int                  $user_id
+	 * @return array<string, mixed>
+	 */
+	public function mark_session( $session, $user_id ): array {
+		return Step_Up::mark_new_session( is_array( $session ) ? $session : array(), (int) $user_id );
+	}
+
+	/**
+	 * @param string $cookie
+	 * @param int    $expire
+	 * @param int    $expiration
+	 * @param int    $user_id
+	 * @param string $scheme
+	 * @param string $token
+	 */
+	public function note_reissued( $cookie, $expire, $expiration, $user_id, $scheme, $token = '' ): void {
+		unset( $cookie, $expire, $expiration, $scheme );
+		Step_Up::note_reissued_token( (int) $user_id, (string) $token );
 	}
 }

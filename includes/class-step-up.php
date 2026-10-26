@@ -71,6 +71,17 @@ final class Step_Up {
 	private static array $by_password = array();
 
 	/**
+	 * Accounts whose password changed during this request. Core signs the
+	 * user in again straight after, sometimes under a new session token, and
+	 * that session set the password as much as the one that asked.
+	 *
+	 * @var array<int, true>
+	 */
+	private static array $password_set_for = array();
+
+	private const PASSWORD_SET_HERE = 'sigil_password_set_here';
+
+	/**
 	 * Whether a change to this account's methods by the current user needs
 	 * fresh proof at all.
 	 */
@@ -205,6 +216,44 @@ final class Step_Up {
 			'session' => hash( 'sha256', wp_get_session_token() ),
 		);
 		update_user_meta( $user_id, self::ORIGIN_META, $origins );
+
+		self::$password_set_for[ $user_id ] = true;
+	}
+
+	/**
+	 * Mark a session created later in the request that changed the password.
+	 *
+	 * @param array<string, mixed> $session
+	 * @return array<string, mixed>
+	 */
+	public static function mark_new_session( array $session, int $user_id ): array {
+		if ( isset( self::$password_set_for[ $user_id ] ) ) {
+			$session[ self::PASSWORD_SET_HERE ] = true;
+		}
+
+		return $session;
+	}
+
+	/**
+	 * Record the token core re-issued after the change as one that set it.
+	 */
+	public static function note_reissued_token( int $user_id, string $token ): void {
+		if ( ! isset( self::$password_set_for[ $user_id ] ) || '' === $token ) {
+			return;
+		}
+
+		$origins = self::origins( $user_id );
+		if ( ! isset( $origins['password'] ) ) {
+			return;
+		}
+
+		$hash     = hash( 'sha256', $token );
+		$sessions = isset( $origins['password']['sessions'] ) && is_array( $origins['password']['sessions'] ) ? $origins['password']['sessions'] : array();
+		if ( ! in_array( $hash, $sessions, true ) ) {
+			$sessions[]                        = $hash;
+			$origins['password']['sessions'] = $sessions;
+			update_user_meta( $user_id, self::ORIGIN_META, $origins );
+		}
 	}
 
 	/**
@@ -275,12 +324,22 @@ final class Step_Up {
 		}
 
 		$token = wp_get_session_token();
-		if ( '' !== $token && hash_equals( (string) ( $origin['session'] ?? '' ), hash( 'sha256', $token ) ) ) {
-			return false;
+		if ( '' !== $token ) {
+			$hash = hash( 'sha256', $token );
+			$set  = array_merge( array( (string) ( $origin['session'] ?? '' ) ), isset( $origin['sessions'] ) && is_array( $origin['sessions'] ) ? $origin['sessions'] : array() );
+			foreach ( $set as $by ) {
+				if ( hash_equals( (string) $by, $hash ) ) {
+					return false;
+				}
+			}
 		}
 
 		$session = self::session( $user_id );
-		$login   = null === $session ? 0 : (int) ( $session['login'] ?? 0 );
+		if ( null !== $session && ! empty( $session[ self::PASSWORD_SET_HERE ] ) ) {
+			return false;
+		}
+
+		$login = null === $session ? 0 : (int) ( $session['login'] ?? 0 );
 
 		return $login > 0 && (int) ( $origin['at'] ?? PHP_INT_MAX ) < $login;
 	}
