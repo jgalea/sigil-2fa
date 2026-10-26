@@ -402,7 +402,8 @@ final class Step_Up {
 			}
 			if ( 'passkey' === $provider->id() && isset( $input['passkey_assertion'] ) && is_string( $input['passkey_assertion'] ) && '' !== $input['passkey_assertion'] ) {
 				$row = self::asserted_credential( $input['passkey_assertion'] );
-				if ( null === $row || (int) $row->user_id !== $user_id || ! self::vouches( $user_id, 'passkey:' . (int) $row->id ) ) {
+				// One registered by someone else is theirs, not the owner's.
+				if ( null === $row || (int) $row->user_id !== $user_id || 1 === (int) ( $row->second_factor_only ?? 0 ) || ! self::vouches( $user_id, 'passkey:' . (int) $row->id ) ) {
 					return '';
 				}
 

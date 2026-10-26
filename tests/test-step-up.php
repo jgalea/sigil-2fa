@@ -527,4 +527,22 @@ class Test_Step_Up extends WP_UnitTestCase {
 
 		$this->assertSame( '', get_user_meta( $user, Step_Up::ORIGIN_META, true ) );
 	}
+
+
+	// What an administrator registered for this account is theirs, not the
+	// owner's, so it never vouches for the owner.
+	public function test_a_passkey_someone_else_registered_proves_nothing(): void {
+		$this->skip_without_passkeys();
+		$user = $this->user();
+		$key  = self::new_key();
+		$cred = random_bytes( 32 );
+		\Sigil\Credentials::add( $user, $cred, openssl_pkey_get_details( $key )['key'], 0, 'Desk key', 'usb', (string) $user, false, true );
+		Store::set_method( $user, 'passkey', array( 'enrolled_at' => time() ) );
+		$this->sign_in( $user, self::STALE );
+
+		$options   = $this->passkey_provider()->auth_options( $user );
+		$assertion = self::signed_assertion( $options->publicKey->challenge->getBinaryString(), $key, $cred, (string) $user );
+
+		$this->assertWPError( Step_Up::prove( $user, array( 'passkey_assertion' => wp_json_encode( $assertion ) ) ) );
+	}
 }
