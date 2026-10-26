@@ -331,8 +331,9 @@ final class Login_Guard {
 		}
 
 		// Wordfence's check is only trusted where Wordfence has registered it.
+		// Sigil's own importer hooks the same action, so that handler is ignored.
 		$defaults = array();
-		if ( has_action( 'wp_ajax_nopriv_wordfence_ls_authenticate' ) ) {
+		if ( self::has_foreign_handler( 'wp_ajax_nopriv_wordfence_ls_authenticate' ) ) {
 			$defaults[] = 'wordfence_ls_authenticate';
 		}
 
@@ -349,5 +350,26 @@ final class Login_Guard {
 		$actions = (array) apply_filters( 'sigil_credential_check_ajax_actions', $defaults );
 
 		return in_array( $action, $actions, true );
+	}
+
+	private static function has_foreign_handler( string $hook ): bool {
+		global $wp_filter;
+
+		if ( ! isset( $wp_filter[ $hook ] ) ) {
+			return false;
+		}
+
+		foreach ( $wp_filter[ $hook ]->callbacks as $callbacks ) {
+			foreach ( $callbacks as $callback ) {
+				$function = $callback['function'];
+				$owner = is_array( $function ) ? ( is_object( $function[0] ) ? get_class( $function[0] ) : (string) $function[0] ) : '';
+				if ( 0 === strpos( ltrim( $owner, '\\' ), __NAMESPACE__ . '\\' ) ) {
+					continue;
+				}
+				return true;
+			}
+		}
+
+		return false;
 	}
 }
