@@ -132,6 +132,7 @@ Yes. Settings → Sigil lets you pick exactly which roles are required, and set 
 * New: import passkeys, authenticator apps and backup codes from other two-factor plugins (see the FAQ).
 * New: password managers can fill authenticator codes, and pasted codes with spaces or dashes work.
 * New: adding, replacing or removing a sign-in method asks you to confirm it's you if you signed in more than 10 minutes ago, and adding a passkey always asks.
+* New: changing your own password or email asks you to confirm it's you if you signed in more than 10 minutes ago.
 * New: "Forget trusted devices" on your two-factor screen.
 * Improved: the change email now names the passkey that was added or removed, and mentions new backup codes and a replaced authenticator.
 * Improved: a passkey an administrator registers for someone else works only after their password, never on its own.
