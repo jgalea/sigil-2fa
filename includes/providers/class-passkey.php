@@ -550,8 +550,8 @@ final class Passkey implements Provider {
 			wp_send_json_error( [ 'message' => __( 'Passkeys are not available in this environment.', 'sigil-2fa' ) ], 400 );
 		}
 
-		if ( ! \Sigil\Step_Up::allows( $user_id ) ) {
-			wp_send_json_error( [ 'message' => \Sigil\Step_Up::error()->get_error_message() ], 403 );
+		if ( ! \Sigil\Step_Up::allows( $user_id ) || ! \Sigil\Step_Up::allows_passkey( $user_id ) ) {
+			wp_send_json_error( [ 'message' => \Sigil\Step_Up::passkey_reason() ], 403 );
 		}
 
 		$user = get_userdata( $user_id );

@@ -283,6 +283,13 @@ final class Wizard {
 		echo '<h2>' . esc_html( 'passkey' === $method ? __( 'Add a passkey', 'sigil-2fa' ) : __( 'Add an authenticator app', 'sigil-2fa' ) ) . '</h2>';
 		echo '<p>' . esc_html__( 'Set up a second factor for yourself before requiring it of anyone else. Turning on enforcement first is how an administrator becomes the first person locked out.', 'sigil-2fa' ) . '</p>';
 
+		if ( 'passkey' === $method && ! Step_Up::allows_passkey( $user_id ) ) {
+			echo '<p>' . esc_html( Step_Up::passkey_reason() ) . '</p>';
+			Enrolment::instance()->render_step_up_form( $user_id, '', array( self::FIELD => '1' ) );
+			echo '<p><a href="' . esc_url( add_query_arg( 'method', 'totp', self::url( 1 ) ) ) . '">' . esc_html__( 'Use an authenticator app instead', 'sigil-2fa' ) . '</a></p>';
+			return;
+		}
+
 		if ( 'passkey' === $method ) {
 			// The passkey registers over AJAX, so there is nothing to submit. This
 			// form is what wizard.js posts once it has, to mint the backup codes.
@@ -325,6 +332,17 @@ final class Wizard {
 		$backup->render_enrol( $user_id );
 
 		$post_url = admin_url( 'admin-post.php' );
+
+		// New codes replace a factor, so a session that signed in a while ago
+		// confirms first, here rather than on another screen.
+		if ( ! $pending && ! Step_Up::allows( $user_id ) ) {
+			echo '<p>' . esc_html__( 'Confirm it is you before generating backup codes.', 'sigil-2fa' ) . '</p>';
+			Enrolment::instance()->render_step_up_form( $user_id, '', array( self::FIELD => '2' ) );
+			if ( $enrolled ) {
+				echo '<p><a class="button button-primary" href="' . esc_url( self::url( 3 ) ) . '">' . esc_html__( 'I have saved them, continue', 'sigil-2fa' ) . '</a></p>';
+			}
+			return;
+		}
 
 		if ( ! $enrolled ) {
 			echo '<form method="post" action="' . esc_url( $post_url ) . '">';

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { resetTwoFactor, login, logout, addVirtualAuthenticator } from './helpers';
+import { resetTwoFactor, login, logout, addVirtualAuthenticator, confirmIdentity } from './helpers';
 
 test.beforeEach(() => resetTwoFactor());
 
@@ -10,6 +10,7 @@ test('enrol a passkey, get challenged at login, and pass it', async ({ page }) =
 
 	await login(page);
 	await page.goto('/wp-admin/users.php?page=sigil-2fa-setup&method=passkey');
+	await confirmIdentity(page);
 
 	await page.fill('#sigil-passkey-label', 'Virtual key');
 	await page.locator('.sigil-passkey-register').click();

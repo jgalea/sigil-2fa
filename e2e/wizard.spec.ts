@@ -1,6 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { resetTwoFactor, login, totp } from './helpers';
+import { resetTwoFactor, login, totp, confirmIdentity } from './helpers';
 
 const WIZARD = '/wp-admin/options-general.php?page=sigil-2fa-wizard';
 const SETTINGS = '/wp-admin/options-general.php?page=sigil-2fa';
@@ -46,6 +46,11 @@ test('a fresh install is walked through a passkey, backup codes and a role requi
 	await expect(page.locator('.notice-info', { hasText: /walk me through it/i })).toBeVisible();
 
 	await page.goto(WIZARD);
+	await expect(page.locator('.sigil-wizard__steps .is-current')).toContainText(/passkey/i);
+
+	// A passkey can be a whole sign-in, so the first one needs the password.
+	await expect(page.locator('.sigil-passkey-register')).toHaveCount(0);
+	await confirmIdentity(page);
 	await expect(page.locator('.sigil-wizard__steps .is-current')).toContainText(/passkey/i);
 
 	await page.fill('#sigil-passkey-label', 'Virtual key');

@@ -223,4 +223,164 @@ class Test_Step_Up extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'value="sigil_remove_method"', $html );
 		unset( $_GET['method'] );
 	}
+
+	/**
+	 * @return array<string, string>
+	 */
+	private function passkey_input( int $user ): array {
+		return $this->attestation( $this->open_registration( $user ), self::new_key(), random_bytes( 32 ) );
+	}
+
+	private function skip_without_passkeys(): void {
+		if ( PHP_VERSION_ID < 80000 ) {
+			$this->markTestSkipped( 'Passkeys need PHP 8.0.' );
+		}
+	}
+
+	// Under zero-setup every account with an address already has email as its
+	// second step, so nothing it adds is a first method.
+	public function test_under_zero_setup_a_change_needs_a_fresh_proof(): void {
+		\Sigil\Zero_Setup::set_enabled( true );
+		\Sigil\Zero_Setup::instance()->register();
+		$user = $this->user();
+		$this->sign_in( $user, self::STALE );
+
+		$result = Enrolment::instance()->complete_method( $user, 'backup', array() );
+		\Sigil\Zero_Setup::set_enabled( false );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sigil_step_up_required', $result->get_error_code() );
+	}
+
+	public function test_under_zero_setup_a_passkey_needs_a_fresh_proof(): void {
+		$this->skip_without_passkeys();
+		\Sigil\Zero_Setup::set_enabled( true );
+		\Sigil\Zero_Setup::instance()->register();
+		$user = $this->user();
+		$this->sign_in( $user );
+
+		$result = Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) );
+		\Sigil\Zero_Setup::set_enabled( false );
+
+		$this->assertWPError( $result );
+		$this->assertSame( array(), \Sigil\Credentials::for_user( $user ) );
+	}
+
+	// A passkey can be the whole sign-in, so a session alone, however fresh,
+	// must not be able to make one: that is a stolen cookie turned into a
+	// credential that outlives it.
+	public function test_a_first_passkey_needs_the_password(): void {
+		$this->skip_without_passkeys();
+		$user = $this->user();
+		$this->sign_in( $user );
+
+		$refused = Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) );
+		$this->assertWPError( $refused );
+		$this->assertSame( 'sigil_step_up_required', $refused->get_error_code() );
+
+		$this->assertTrue( Step_Up::prove( $user, array( 'password' => self::PASS ) ) );
+		$this->assertTrue( Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) ) );
+		$this->assertCount( 1, \Sigil\Credentials::for_user( $user ) );
+	}
+
+	public function test_a_first_authenticator_still_needs_only_the_session(): void {
+		$user = $this->user();
+		$this->sign_in( $user, self::STALE );
+
+		$this->assertTrue( Enrolment::instance()->complete_method( $user, 'totp', array( 'secret' => 'x' ) ) );
+	}
+
+	public function test_a_recent_sign_in_is_not_enough_to_add_a_passkey(): void {
+		$this->skip_without_passkeys();
+		$user = $this->user();
+		$this->with_totp( $user );
+		$this->sign_in( $user, MINUTE_IN_SECONDS );
+
+		$this->assertWPError( Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) ) );
+
+		$this->assertTrue( Step_Up::prove( $user, array( 'code' => \Sigil\Providers\TOTP::code_at( self::SECRET, time() ) ) ) );
+		$this->assertTrue( Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) ) );
+	}
+
+	// Otherwise a stolen session sets up an authenticator, which needs nothing,
+	// and then counts that as the proof for a passkey.
+	public function test_setting_up_a_first_method_is_not_proof_for_a_passkey(): void {
+		$this->skip_without_passkeys();
+		$user = $this->user();
+		$this->sign_in( $user, self::STALE );
+
+		$this->assertTrue( Enrolment::instance()->complete_method( $user, 'email', array() ) );
+		$this->assertWPError( Enrolment::instance()->complete_method( $user, 'passkey', $this->passkey_input( $user ) ) );
+	}
+
+	public function test_wrong_confirmation_passwords_count_as_wrong_passwords(): void {
+		\Sigil\Policy::update( array( 'limit_passwords' => true ) );
+		$user = $this->user();
+		$this->sign_in( $user, self::STALE );
+
+		for ( $i = 0; $i < 5; $i++ ) {
+			Step_Up::prove( $user, array( 'password' => 'wrong' ) );
+		}
+		$this->forget_step_up_attempts( $user );
+
+		$result = wp_authenticate( get_userdata( $user )->user_login, self::PASS );
+		$this->assertWPError( $result );
+		$this->assertSame( 'sigil_password_limited', $result->get_error_code() );
+	}
+
+	public function test_the_wizard_asks_for_the_password_before_a_first_passkey(): void {
+		$this->skip_without_passkeys();
+		$admin = $this->admin_user();
+		$this->sign_in( $admin );
+
+		$html = $this->wizard_page( 1 );
+
+		$this->assertStringContainsString( 'value="sigil_step_up"', $html );
+		$this->assertStringContainsString( 'name="sigil_step_up_password"', $html );
+		$this->assertStringNotContainsString( 'sigil-passkey-register', $html );
+
+		Step_Up::prove( $admin, array( 'password' => self::PASS ) );
+		$this->assertStringContainsString( 'sigil-passkey-register', $this->wizard_page( 1 ) );
+	}
+
+	public function test_the_wizard_offers_the_confirm_form_for_new_backup_codes(): void {
+		$admin = $this->admin_user();
+		$this->with_totp( $admin );
+		Enrolment::instance()->ensure_backup_codes( $admin );
+		$this->sign_in( $admin, self::STALE );
+		$this->wizard_page( 2 );
+
+		$html = $this->wizard_page( 2 );
+
+		$this->assertStringContainsString( 'value="sigil_step_up"', $html );
+		$this->assertStringNotContainsString( 'value="sigil_regenerate_backup"', $html );
+	}
+
+	private function admin_user(): int {
+		$id = (int) self::factory()->user->create(
+			array(
+				'role'      => 'administrator',
+				'user_pass' => self::PASS,
+			)
+		);
+		if ( is_multisite() ) {
+			grant_super_admin( $id );
+		}
+
+		return $id;
+	}
+
+	private function wizard_page( int $step ): string {
+		$_GET['step'] = (string) $step;
+		ob_start();
+		\Sigil\Wizard::instance()->render();
+		$html = (string) ob_get_clean();
+		unset( $_GET['step'] );
+
+		return $html;
+	}
+
+	private function forget_step_up_attempts( int $user ): void {
+		\Sigil\Rate_Limit::clear( 'su:' . $user );
+	}
 }

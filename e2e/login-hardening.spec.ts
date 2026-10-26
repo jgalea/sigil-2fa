@@ -1,7 +1,7 @@
 import { test, expect, APIResponse, APIRequestContext, Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { addVirtualAuthenticator, login, logout, resetTwoFactor } from './helpers';
+import { addVirtualAuthenticator, login, logout, resetTwoFactor, confirmIdentity } from './helpers';
 
 // Sign-ins that skip the challenge for a reason of their own, passkey alone and
 // trusted devices, read from the raw headers like login-session.spec.ts: a live
@@ -168,6 +168,7 @@ test.describe('passwordless', () => {
 		await addVirtualAuthenticator(page);
 		await login(page);
 		await page.goto('/wp-admin/users.php?page=sigil-2fa-setup&method=passkey');
+		await confirmIdentity(page);
 		await page.fill('#sigil-passkey-label', 'Virtual key');
 		await page.locator('.sigil-passkey-register').first().click();
 		await expect(page.locator('.sigil-passkey-status').first()).toContainText(/registered/i);

@@ -36,9 +36,16 @@ class Test_Passkey_Enrolment extends WP_Ajax_UnitTestCase {
 		);
 	}
 
+	// Signed in and confirmed with the password, as adding a passkey needs.
 	private function owner(): int {
-		$id = (int) self::factory()->user->create( array( 'role' => 'subscriber' ) );
+		$id = (int) self::factory()->user->create(
+			array(
+				'role'      => 'subscriber',
+				'user_pass' => 'pass-word-1',
+			)
+		);
 		$this->sign_in( $id );
+		$this->assertTrue( \Sigil\Step_Up::prove( $id, array( 'password' => 'pass-word-1' ) ) );
 
 		return $id;
 	}

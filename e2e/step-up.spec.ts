@@ -12,7 +12,7 @@ function wpEval(code: string) {
 // confirmation from setting up the first method included.
 function ageSessions() {
 	wpEval(
-		"$id = get_user_by( 'login', 'admin' )->ID; $s = get_user_meta( $id, 'session_tokens', true ); foreach ( $s as $k => $v ) { $s[ $k ]['login'] = time() - HOUR_IN_SECONDS; unset( $s[ $k ]['sigil_step_up'] ); } update_user_meta( $id, 'session_tokens', $s );"
+		"$id = get_user_by( 'login', 'admin' )->ID; $s = get_user_meta( $id, 'session_tokens', true ); foreach ( $s as $k => $v ) { $s[ $k ]['login'] = time() - HOUR_IN_SECONDS; unset( $s[ $k ]['sigil_step_up'], $s[ $k ]['sigil_setup'] ); } update_user_meta( $id, 'session_tokens', $s );"
 	);
 }
 
@@ -70,4 +70,36 @@ test('trusted devices can be forgotten from the two-factor screen', async ({ pag
 	await page.getByRole('button', { name: 'Forget trusted devices' }).click();
 	await expect(page.locator('.notice-success')).toContainText(/forgotten/i);
 	await expect(page.getByRole('button', { name: 'Forget trusted devices' })).toHaveCount(0);
+});
+
+// A cookie taken within minutes of the owner signing in must not be able to
+// mint a passkey, so a fresh sign-in is not enough for this one change.
+test('a fresh sign-in still confirms before adding a passkey', async ({ page }) => {
+	await addVirtualAuthenticator(page);
+	await login(page);
+	await enrolTotp(page);
+
+	await page.goto('/wp-admin/users.php?page=sigil-2fa-setup&method=passkey');
+	await expect(page.locator('.sigil-enrol__step-up')).toBeVisible();
+	await expect(page.locator('.sigil-passkey-register')).toHaveCount(0);
+
+	// Other changes still take the recent sign-in.
+	await page.goto('/wp-admin/users.php?page=sigil-2fa-setup&method=totp');
+	await expect(page.locator('.sigil-enrol__form--remove')).toBeVisible();
+});
+
+test('the wizard confirms on its own screen before new backup codes', async ({ page }) => {
+	execFileSync('npx', ['@wordpress/env', 'run', 'cli', 'wp', 'option', 'delete', 'sigil_pro_wizard_done'], { stdio: 'ignore' });
+	await login(page);
+	await enrolTotp(page);
+	ageSessions();
+
+	await page.goto('/wp-admin/options-general.php?page=sigil-2fa-wizard&step=2');
+	const form = page.locator('.sigil-step-up-form');
+	await expect(form).toBeVisible();
+	await form.locator('#sigil-step-up-password').fill('password');
+	await form.locator('button[type="submit"]').click();
+
+	await expect(page.locator('.sigil-step-up-form')).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Generate new backup codes' })).toBeVisible();
 });

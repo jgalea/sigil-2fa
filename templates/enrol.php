@@ -11,7 +11,7 @@
  * @var string             $active
  * @var \Sigil\Provider|null $backup_provider
  * @var bool               $needs_step_up
- * @var list<\Sigil\Provider> $step_up
+ * @var bool               $passkey_proof
  * @var bool               $own_account
  * @var int                $trusted_count
  */
@@ -33,7 +33,7 @@ $notices       = isset( $notices ) && is_array( $notices ) ? $notices : array( '
 $show_backup   = ! empty( $show_backup );
 $active        = isset( $active ) ? (string) $active : '';
 $needs_step_up = ! empty( $needs_step_up );
-$step_up       = isset( $step_up ) && is_array( $step_up ) ? $step_up : array();
+$passkey_proof = ! empty( $passkey_proof );
 $own_account   = ! empty( $own_account );
 $trusted_count = isset( $trusted_count ) ? (int) $trusted_count : 0;
 $post_url      = admin_url( 'admin-post.php' );
@@ -154,34 +154,18 @@ $standalone    = $is_setup_page || ! is_admin();
 	}
 	?>
 
-	<?php if ( $needs_step_up ) : ?>
+	<?php if ( $needs_step_up || ( 'passkey' === $active && $passkey_proof ) ) : ?>
 		<div class="sigil-enrol__panel sigil-enrol__step-up">
 			<h3><?php echo esc_html__( 'Confirm it is you', 'sigil-2fa' ); ?></h3>
-			<p><?php echo esc_html__( 'Before adding, replacing or removing a sign-in method, confirm it is you with your password or one of your current methods. Signing in again works too.', 'sigil-2fa' ); ?></p>
-			<?php if ( ! $standalone ) : ?>
-				<p><a class="button" href="<?php echo esc_url( admin_url( 'users.php?page=' . \Sigil\Enrolment::PAGE_SLUG ) ); ?>"><?php echo esc_html__( 'Confirm on the two-factor page', 'sigil-2fa' ); ?></a></p>
+			<?php if ( $needs_step_up ) : ?>
+				<p><?php echo esc_html__( 'Before adding, replacing or removing a sign-in method, confirm it is you with your password or one of your current methods. Signing in again works too.', 'sigil-2fa' ); ?></p>
 			<?php else : ?>
-			<form method="post" action="<?php echo esc_url( $post_url ); ?>" class="sigil-enrol__form">
-				<input type="hidden" name="action" value="sigil_step_up" />
-				<input type="hidden" name="user_id" value="<?php echo esc_attr( (string) $user_id ); ?>" />
-				<input type="hidden" name="method" value="<?php echo esc_attr( $active ); ?>" />
-				<?php wp_nonce_field( 'sigil_step_up_' . $user_id ); ?>
-				<p>
-					<label for="sigil-step-up-password"><?php echo esc_html__( 'Password', 'sigil-2fa' ); ?></label>
-					<input type="password" name="sigil_step_up_password" id="sigil-step-up-password" class="regular-text" autocomplete="current-password" />
-				</p>
-				<?php foreach ( $step_up as $factor ) : ?>
-					<?php if ( 'totp' === $factor->id() ) : ?>
-						<p>
-							<label for="sigil-step-up-code"><?php echo esc_html__( 'Or a code from your authenticator app', 'sigil-2fa' ); ?></label>
-							<input type="text" name="sigil_step_up_code" id="sigil-step-up-code" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" />
-						</p>
-					<?php elseif ( 'passkey' === $factor->id() ) : ?>
-						<?php $factor->render_challenge( $user_id ); ?>
-					<?php endif; ?>
-				<?php endforeach; ?>
-				<p><button type="submit" class="button button-primary"><?php echo esc_html__( 'Confirm', 'sigil-2fa' ); ?></button></p>
-			</form>
+				<p><?php echo esc_html( \Sigil\Step_Up::passkey_reason() ); ?></p>
+			<?php endif; ?>
+			<?php if ( ! $standalone ) : ?>
+				<p><a class="button" href="<?php echo esc_url( admin_url( 'users.php?page=' . \Sigil\Enrolment::PAGE_SLUG . '&method=' . $active ) ); ?>"><?php echo esc_html__( 'Confirm on the two-factor page', 'sigil-2fa' ); ?></a></p>
+			<?php else : ?>
+				<?php \Sigil\Enrolment::instance()->render_step_up_form( $user_id, $active ); ?>
 			<?php endif; ?>
 		</div>
 	<?php elseif ( $active_provider ) : ?>

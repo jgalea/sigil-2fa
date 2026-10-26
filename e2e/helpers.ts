@@ -143,3 +143,12 @@ export async function addVirtualAuthenticator(page: Page, { autofill = false } =
 		},
 	});
 }
+
+// Adding a passkey needs the password even straight after signing in.
+export async function confirmIdentity(page: Page, pass = 'password') {
+	const form = page.locator('.sigil-step-up-form');
+	await expect(form).toBeVisible();
+	await form.locator('#sigil-step-up-password').fill(pass);
+	await form.locator('button[type="submit"]').click();
+	await expect(form).toHaveCount(0);
+}

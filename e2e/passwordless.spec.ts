@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { test, expect, Page } from '@playwright/test';
-import { resetTwoFactor, login, logout, addVirtualAuthenticator } from './helpers';
+import { resetTwoFactor, login, logout, addVirtualAuthenticator, confirmIdentity } from './helpers';
 
 function wp(...args: string[]): string {
 	return execFileSync('npx', ['@wordpress/env', 'run', 'cli', 'wp', ...args], { encoding: 'utf8' }).trim();
@@ -24,6 +24,7 @@ test.afterAll(() => setPasswordless(true));
 async function enrolPasskey(page: Page) {
 	await login(page);
 	await page.goto('/wp-admin/users.php?page=sigil-2fa-setup&method=passkey');
+	await confirmIdentity(page);
 	await page.fill('#sigil-passkey-label', 'Virtual key');
 	await page.locator('.sigil-passkey-register').first().click();
 	await expect(page.locator('.sigil-passkey-status').first()).toContainText(/registered/i);

@@ -1,6 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { resetTwoFactor, login, logout, totp } from './helpers';
+import { resetTwoFactor, login, logout, totp, confirmIdentity } from './helpers';
 
 function cli(args: string[]): string {
 	return execFileSync('npx', ['@wordpress/env', 'run', 'cli', 'wp', ...args], { encoding: 'utf8' }).trim();
@@ -83,6 +83,7 @@ test('passkey enrolment works from the front-end page', async ({ page }) => {
 	await login(page);
 	await page.goto('/two-factor/');
 	await page.locator('.sigil-enrol__tab', { hasText: /passkey/i }).first().click();
+	await confirmIdentity(page);
 
 	// Its config has to reach the page, or the button is inert.
 	expect(await page.evaluate(() => typeof (window as any).sigilPasskey)).toBe('object');

@@ -185,7 +185,11 @@ final class Enrolment {
 			);
 		}
 
-		$first = (int) get_current_user_id() === $user_id && ! Store::has_any( $user_id );
+		if ( 'passkey' === $provider_id && ! Step_Up::allows_passkey( $user_id ) ) {
+			return Step_Up::passkey_error();
+		}
+
+		$first = (int) get_current_user_id() === $user_id && ! Providers::instance()->has_usable( $user_id );
 
 		$provider = Providers::instance()->get( $provider_id );
 		if ( null === $provider ) {
@@ -222,7 +226,7 @@ final class Enrolment {
 		do_action( 'sigil_methods_changed', $user_id );
 
 		if ( $first ) {
-			Step_Up::record( $user_id );
+			Step_Up::record_setup( $user_id );
 		}
 
 		return true;
@@ -575,8 +579,8 @@ final class Enrolment {
 			&& $this->backup_codes_pending_display( $user_id );
 
 		$needs_step_up = Step_Up::required( $user_id ) && ! Step_Up::satisfied( $user_id );
-		$step_up       = $needs_step_up ? Step_Up::factors( $user_id ) : array();
 		$own_account   = (int) get_current_user_id() === $user_id;
+		$passkey_proof = ! Step_Up::allows_passkey( $user_id );
 		$trusted_count = $own_account ? Trusted_Devices::instance()->count_for( $user_id ) : 0;
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only query flag.
@@ -586,6 +590,38 @@ final class Enrolment {
 		}
 
 		require SIGIL_DIR . 'templates/enrol.php';
+	}
+
+	/**
+	 * The confirm form: the password, and whichever current factors can
+	 * confirm. Posts to the step-up handler, which comes back to $method's tab.
+	 *
+	 * @param array<string, string> $hidden Extra fields, such as the wizard's step.
+	 */
+	public function render_step_up_form( int $user_id, string $method = '', array $hidden = array() ): void {
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="sigil-enrol__form sigil-step-up-form">';
+		echo '<input type="hidden" name="action" value="sigil_step_up" />';
+		echo '<input type="hidden" name="user_id" value="' . esc_attr( (string) $user_id ) . '" />';
+		echo '<input type="hidden" name="method" value="' . esc_attr( $method ) . '" />';
+		foreach ( $hidden as $name => $value ) {
+			echo '<input type="hidden" name="' . esc_attr( (string) $name ) . '" value="' . esc_attr( (string) $value ) . '" />';
+		}
+		wp_nonce_field( 'sigil_step_up_' . $user_id );
+
+		echo '<p><label for="sigil-step-up-password">' . esc_html__( 'Password', 'sigil-2fa' ) . '</label> ';
+		echo '<input type="password" name="sigil_step_up_password" id="sigil-step-up-password" class="regular-text" autocomplete="current-password" /></p>';
+
+		foreach ( Step_Up::factors( $user_id ) as $factor ) {
+			if ( 'totp' === $factor->id() ) {
+				echo '<p><label for="sigil-step-up-code">' . esc_html__( 'Or a code from your authenticator app', 'sigil-2fa' ) . '</label> ';
+				echo '<input type="text" name="sigil_step_up_code" id="sigil-step-up-code" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" /></p>';
+			} elseif ( 'passkey' === $factor->id() ) {
+				$factor->render_challenge( $user_id );
+			}
+		}
+
+		echo '<p><button type="submit" class="button button-primary">' . esc_html__( 'Confirm', 'sigil-2fa' ) . '</button></p>';
+		echo '</form>';
 	}
 
 	/**
