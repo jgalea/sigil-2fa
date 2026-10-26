@@ -39,9 +39,24 @@ final class Login_Guard {
 	private array $issued = array();
 
 	/**
+	 * Accounts whose password was changed during this request.
+	 *
+	 * @var array<int, true>
+	 */
+	private array $password_changed = array();
+
+	/**
 	 * Who the request arrived signed in as, proven by its auth cookie.
 	 */
 	private ?int $session_user = null;
+
+	/**
+	 * The session the request's logged_in cookie belongs to, read at the same
+	 * moment as the auth cookie.
+	 *
+	 * @var array{user: int, token: string}|null
+	 */
+	private ?array $logged_in_session = null;
 
 	private bool $password_attempted = false;
 
@@ -58,6 +73,9 @@ final class Login_Guard {
 		add_action( 'user_register', array( $this, 'note_new_user' ) );
 		add_filter( 'determine_current_user', array( $this, 'note_session_user' ), PHP_INT_MAX );
 		add_action( 'wp_authenticate', array( $this, 'note_password_attempt' ) );
+		add_action( 'profile_update', array( $this, 'note_profile_update' ), 10, 2 );
+		add_action( 'wp_set_password', array( $this, 'note_set_password' ), 10, 3 );
+		add_action( 'after_password_reset', array( $this, 'note_password_reset' ) );
 	}
 
 	/**
@@ -110,8 +128,62 @@ final class Login_Guard {
 	private function arrived_as(): int {
 		if ( null === $this->session_user ) {
 			$this->session_user = (int) wp_validate_auth_cookie( '', is_ssl() ? 'secure_auth' : 'auth' );
+			$this->logged_in_session = self::read_logged_in();
 		}
 		return $this->session_user;
+	}
+
+	/**
+	 * Read together with the auth cookie, because both are checked against
+	 * the password hash and stop validating once it changes.
+	 *
+	 * @return array{user: int, token: string}
+	 */
+	private static function read_logged_in(): array {
+		$user_id = (int) wp_validate_auth_cookie( '', 'logged_in' );
+		$parsed  = $user_id > 0 ? wp_parse_auth_cookie( '', 'logged_in' ) : false;
+
+		return array(
+			'user'  => $user_id,
+			'token' => is_array( $parsed ) && isset( $parsed['token'] ) ? (string) $parsed['token'] : '',
+		);
+	}
+
+	/**
+	 * @param mixed $user_id
+	 * @param mixed $old_user_data
+	 */
+	public function note_profile_update( $user_id, $old_user_data = null ): void {
+		$current = get_userdata( (int) $user_id );
+		if ( $old_user_data instanceof \WP_User && $current instanceof \WP_User && $current->user_pass !== $old_user_data->user_pass ) {
+			$this->password_changed[ (int) $user_id ] = true;
+		}
+	}
+
+	/**
+	 * Core also calls wp_set_password() to rehash the password just typed at
+	 * sign-in, which is not a change.
+	 *
+	 * @param mixed $password
+	 * @param mixed $user_id
+	 * @param mixed $old_user_data
+	 */
+	public function note_set_password( $password, $user_id, $old_user_data = null ): void {
+		if ( $old_user_data instanceof \WP_User
+			&& wp_check_password( (string) $password, (string) $old_user_data->user_pass, (int) $user_id ) ) {
+			return;
+		}
+
+		$this->password_changed[ (int) $user_id ] = true;
+	}
+
+	/**
+	 * @param mixed $user
+	 */
+	public function note_password_reset( $user ): void {
+		if ( $user instanceof \WP_User ) {
+			$this->password_changed[ (int) $user->ID ] = true;
+		}
 	}
 
 	/**
@@ -182,6 +254,7 @@ final class Login_Guard {
 
 		if ( isset( $this->granted[ $user_id ] ) || isset( $this->new_users[ $user_id ] )
 			|| $this->is_existing_session( $user_id )
+			|| $this->is_password_change( $user_id, (string) $token )
 			|| ! Providers::instance()->has_usable( $user_id ) ) {
 			$this->issued[ $user_id ] = true;
 			return true;
@@ -208,6 +281,36 @@ final class Login_Guard {
 		}
 
 		return $user_id === $this->arrived_as();
+	}
+
+	/**
+	 * Whether the cookie carries on the session the request arrived with,
+	 * re-issued because its owner has just changed their password.
+	 *
+	 * The auth cookie is scoped to wp-admin, so a password changed from a
+	 * front-end form such as WooCommerce's account details arrives with only
+	 * the logged_in cookie, and is_existing_session() cannot see it. Core
+	 * re-issues the session under the logged_in cookie's own token, so the
+	 * cookie must belong to that same session, and the password must really
+	 * have changed in this request. Never during a password sign-in: holding
+	 * a logged_in cookie is no reason for a sign-in to skip the factor.
+	 */
+	private function is_password_change( int $user_id, string $token ): bool {
+		if ( $this->password_attempted || ! isset( $this->password_changed[ $user_id ] ) ) {
+			return false;
+		}
+
+		if ( App_Passwords::instance()->used_application_password( $user_id ) ) {
+			return false;
+		}
+
+		$this->arrived_as();
+		$session = $this->logged_in_session;
+
+		return null !== $session
+			&& $user_id === $session['user']
+			&& '' !== $token
+			&& hash_equals( $session['token'], $token );
 	}
 
 	private static function is_guarded_request(): bool {

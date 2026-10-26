@@ -34,6 +34,8 @@ class Test_Login_Guard extends WP_UnitTestCase {
 		$this->reset_guard( 'session_user', null );
 		$this->reset_guard( 'password_attempted', false );
 		$this->reset_guard( 'issued', array() );
+		$this->reset_guard( 'password_changed', array() );
+		$this->reset_guard( 'logged_in_session', null );
 		unset( $_COOKIE[ AUTH_COOKIE ], $_COOKIE[ LOGGED_IN_COOKIE ], $_COOKIE['sigil_pro_trusted'] );
 		parent::tear_down();
 	}
@@ -367,6 +369,95 @@ class Test_Login_Guard extends WP_UnitTestCase {
 
 		$this->assertWPError( $this->password_step( $user, 'wrong' ) );
 		wp_set_auth_cookie( (int) $user->ID );
+
+		$this->assertSame( array( false ), $this->sent );
+	}
+
+	/**
+	 * Arrive the way a front-end page does: the auth cookie is scoped to
+	 * wp-admin, so only the logged_in cookie comes with the request.
+	 */
+	private function arrive_on_the_front_end( WP_User $user ): string {
+		$token = WP_Session_Tokens::get_instance( (int) $user->ID )->create( time() + DAY_IN_SECONDS );
+		$this->arrive_with( LOGGED_IN_COOKIE, wp_generate_auth_cookie( (int) $user->ID, time() + DAY_IN_SECONDS, 'logged_in', $token ) );
+		\Sigil\Login_Guard::instance()->note_session_user( 0 );
+		wp_set_current_user( (int) $user->ID );
+		return $token;
+	}
+
+	public function test_changing_your_own_password_on_the_front_end_keeps_you_signed_in(): void {
+		$user  = $this->enrolled_user();
+		$token = $this->arrive_on_the_front_end( $user );
+
+		// What WooCommerce's account details form does with a new password.
+		wp_update_user(
+			array(
+				'ID'        => (int) $user->ID,
+				'user_pass' => 'a-brand-new-password',
+			)
+		);
+
+		$this->assertSame( array( true ), $this->sent );
+		$this->assertNotNull( WP_Session_Tokens::get_instance( (int) $user->ID )->get( $token ), 'the session carries on' );
+	}
+
+	public function test_setting_a_new_password_directly_keeps_the_session_it_reissues(): void {
+		$user  = $this->enrolled_user();
+		$token = $this->arrive_on_the_front_end( $user );
+
+		wp_set_password( 'a-brand-new-password', (int) $user->ID );
+		wp_set_auth_cookie( (int) $user->ID, false, '', $token );
+
+		$this->assertSame( array( true ), $this->sent );
+	}
+
+	public function test_a_logged_in_cookie_without_a_password_change_is_still_not_a_session(): void {
+		$user  = $this->enrolled_user();
+		$token = $this->arrive_on_the_front_end( $user );
+
+		wp_set_auth_cookie( (int) $user->ID, false, '', $token );
+
+		$this->assertSame( array( false ), $this->sent );
+	}
+
+	public function test_a_password_change_never_issues_a_session_the_cookie_did_not_belong_to(): void {
+		$user = $this->enrolled_user();
+		$this->arrive_on_the_front_end( $user );
+
+		wp_set_password( 'a-brand-new-password', (int) $user->ID );
+		wp_set_auth_cookie( (int) $user->ID );
+
+		$this->assertSame( array( false ), $this->sent );
+	}
+
+	public function test_changing_someone_elses_password_issues_them_nothing(): void {
+		$user  = $this->enrolled_user();
+		$other = $this->enrolled_user();
+		$token = $this->arrive_on_the_front_end( $user );
+
+		wp_set_password( 'a-brand-new-password', (int) $other->ID );
+		wp_set_auth_cookie( (int) $other->ID, false, '', $token );
+
+		$this->assertSame( array( false ), $this->sent );
+	}
+
+	public function test_a_password_sign_in_with_a_logged_in_cookie_stays_held_even_if_the_password_changes(): void {
+		$user  = $this->enrolled_user();
+		$token = $this->arrive_on_the_front_end( $user );
+
+		wp_authenticate( $user->user_login, 'password' );
+		wp_set_password( 'a-brand-new-password', (int) $user->ID );
+		wp_set_auth_cookie( (int) $user->ID, false, '', $token );
+
+		$this->assertSame( array( false ), $this->sent );
+	}
+
+	public function test_a_rehash_of_the_same_password_is_not_a_change(): void {
+		$user  = $this->enrolled_user();
+		$token = $this->arrive_on_the_front_end( $user );
+
+		wp_set_password( 'password', (int) $user->ID );
+		wp_set_auth_cookie( (int) $user->ID, false, '', $token );
 
 		$this->assertSame( array( false ), $this->sent );
 	}
