@@ -7,6 +7,8 @@ declare( strict_types=1 );
  */
 class Test_Preference extends WP_UnitTestCase {
 
+	use Signed_In;
+
 	public function set_up(): void {
 		parent::set_up();
 		\Sigil\Schema::install();
@@ -57,7 +59,7 @@ class Test_Preference extends WP_UnitTestCase {
 		$user = $this->with_two_methods();
 		\Sigil\Providers::set_preference( $user, 'email' );
 
-		wp_set_current_user( $user );
+		$this->sign_in( $user );
 		\Sigil\Enrolment::instance()->remove_method( $user, 'email' );
 
 		$this->assertSame( '', \Sigil\Providers::preference( $user ) );

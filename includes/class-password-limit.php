@@ -128,9 +128,16 @@ final class Password_Limit {
 		$account_key = self::account_key( $username );
 		$ip_key      = self::ip_key();
 
+		// Anyone anywhere can spend an account's allowance, so on its own it
+		// would let a stranger keep an administrator out for as long as they
+		// kept guessing. The right password from a device that account trusted
+		// after passing its second factor is the owner, and skips it. The
+		// address bucket still applies.
+		$trusted = $user instanceof \WP_User && Trusted_Devices::instance()->trusts_request( (int) $user->ID );
+
 		// Taken before deciding, as the challenge does, so a burst of parallel
 		// posts cannot all pass a check made before the count.
-		$account = Rate_Limit::reserve( $account_key, $limits['window'] );
+		$account = $trusted ? 0 : Rate_Limit::reserve( $account_key, $limits['window'] );
 		$ip      = Rate_Limit::reserve( $ip_key, $limits['window'] );
 
 		// No table to count in. The challenge fails closed on that, but here it
@@ -150,7 +157,9 @@ final class Password_Limit {
 		}
 
 		if ( $ip > $limits['ip_attempts'] ) {
-			Rate_Limit::release( $account_key );
+			if ( ! $trusted ) {
+				Rate_Limit::release( $account_key );
+			}
 			return self::refused();
 		}
 

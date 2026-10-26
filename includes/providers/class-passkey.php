@@ -108,7 +108,7 @@ final class Passkey implements Provider {
 		$rows = array_filter(
 			Credentials::for_user( $user_id ),
 			static function ( $row ): bool {
-				return 1 !== (int) $row->discoverable;
+				return 1 !== (int) $row->discoverable || 1 === (int) ( $row->second_factor_only ?? 0 );
 			}
 		);
 		if ( [] === $rows ) {
@@ -208,7 +208,13 @@ final class Passkey implements Provider {
 			$label = __( 'Passkey', 'sigil-2fa' );
 		}
 
-		$id = Credentials::add( $user_id, $credential_id, $public_key, $sign_count, $label, $transports, (string) $user_id, $discoverable );
+		// A passkey somebody else registered for this account, an administrator
+		// at their desk, is held by them and not by the owner. It can stand in
+		// for the owner's second step, which still follows their password, but
+		// never for the whole sign-in.
+		$second_factor_only = get_current_user_id() !== $user_id;
+
+		$id = Credentials::add( $user_id, $credential_id, $public_key, $sign_count, $label, $transports, (string) $user_id, $discoverable, $second_factor_only );
 		if ( $id <= 0 ) {
 			return new \WP_Error( 'sigil_passkey_store', __( 'Could not store the passkey.', 'sigil-2fa' ) );
 		}
@@ -315,9 +321,11 @@ final class Passkey implements Provider {
 	 * sign-in here, so it has to bring the second factor (the PIN or biometric
 	 * that unlocks it) as well as the first.
 	 *
+	 * @param string $binding Hash of the value tying the ceremony to the browser
+	 *                        that asked for it, kept in the same stored row.
 	 * @return array{ceremony: string, options: \stdClass}|null
 	 */
-	public function discoverable_options(): ?array {
+	public function discoverable_options( string $binding = '' ): ?array {
 		if ( ! $this->is_available() ) {
 			return null;
 		}
@@ -333,7 +341,14 @@ final class Passkey implements Provider {
 		// Nobody is signed in yet, so the challenge is bound to an opaque
 		// ceremony id instead of a user, and only its holder can spend it.
 		$ceremony = bin2hex( random_bytes( 32 ) );
-		set_transient( self::ceremony_key( $ceremony ), base64_encode( $challenge ), self::CHALLENGE_TTL );
+		set_transient(
+			self::ceremony_key( $ceremony ),
+			[
+				'c' => base64_encode( $challenge ),
+				'b' => $binding,
+			],
+			self::CHALLENGE_TTL
+		);
 
 		return [
 			'ceremony' => $ceremony,
@@ -349,9 +364,10 @@ final class Passkey implements Provider {
 	 * a user handle it sends can only veto.
 	 *
 	 * @param array<string, mixed> $assertion id, clientDataJSON, authenticatorData, signature, userHandle.
+	 * @param string               $binding   The browser binding's hash, which must match the one minted with the ceremony.
 	 * @return int User ID, or 0 when the assertion does not verify.
 	 */
-	public function discoverable_owner( string $ceremony, array $assertion ): int {
+	public function discoverable_owner( string $ceremony, array $assertion, string $binding = '' ): int {
 		if ( ! $this->is_available() || ! preg_match( '/^[a-f0-9]{64}$/', $ceremony ) ) {
 			return 0;
 		}
@@ -360,11 +376,15 @@ final class Passkey implements Provider {
 		// one assertion even when the same one is posted twice at once.
 		$key    = self::ceremony_key( $ceremony );
 		$stored = get_transient( $key );
-		if ( ! is_string( $stored ) || ! delete_transient( $key ) ) {
+		if ( ! is_array( $stored ) || ! isset( $stored['c'], $stored['b'] ) || ! delete_transient( $key ) ) {
 			return 0;
 		}
 
-		$challenge = base64_decode( $stored, true );
+		if ( ! hash_equals( (string) $stored['b'], $binding ) ) {
+			return 0;
+		}
+
+		$challenge = base64_decode( (string) $stored['c'], true );
 		if ( ! is_string( $challenge ) || '' === $challenge ) {
 			return 0;
 		}
@@ -380,7 +400,7 @@ final class Passkey implements Provider {
 		}
 
 		$user_id = (int) $cred->user_id;
-		if ( ! $this->is_enrolled( $user_id ) ) {
+		if ( ! $this->is_enrolled( $user_id ) || 1 === (int) ( $cred->second_factor_only ?? 0 ) ) {
 			return 0;
 		}
 
@@ -530,6 +550,10 @@ final class Passkey implements Provider {
 			wp_send_json_error( [ 'message' => __( 'Passkeys are not available in this environment.', 'sigil-2fa' ) ], 400 );
 		}
 
+		if ( ! \Sigil\Step_Up::allows( $user_id ) ) {
+			wp_send_json_error( [ 'message' => \Sigil\Step_Up::error()->get_error_message() ], 403 );
+		}
+
 		$user = get_userdata( $user_id );
 		if ( ! $user ) {
 			wp_send_json_error( [ 'message' => __( 'User not found.', 'sigil-2fa' ) ], 404 );
@@ -597,9 +621,13 @@ final class Passkey implements Provider {
 		];
 		// phpcs:enable WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 
-		$result = $this->handle_enrol( $user_id, $input );
+		// Through the same door as every other method, so the change alert, the
+		// trusted-device revocation, backup codes and the confirmation step all
+		// apply to a passkey as well.
+		$result = \Sigil\Enrolment::instance()->complete_method( $user_id, $this->id(), $input );
 		if ( is_wp_error( $result ) ) {
-			wp_send_json_error( [ 'message' => $result->get_error_message() ], 400 );
+			$status = in_array( $result->get_error_code(), [ 'sigil_step_up_required', 'sigil_forbidden' ], true ) ? 403 : 400;
+			wp_send_json_error( [ 'message' => $result->get_error_message() ], $status );
 		}
 
 		wp_send_json_success( [ 'message' => __( 'Passkey registered.', 'sigil-2fa' ) ] );

@@ -130,12 +130,14 @@ class Test_REST extends WP_UnitTestCase {
 	}
 
 	public function test_removing_one_method_leaves_the_others(): void {
-		$user = self::factory()->user->create();
+		$user = self::factory()->user->create( array( 'user_pass' => 'pass-word-1' ) );
 		\Sigil\Store::set_method( $user, 'totp', array( 'secret' => 'x' ) );
 		\Sigil\Store::set_method( $user, 'email', array( 'enrolled_at' => 1 ) );
 
+		// Removing your own method needs fresh proof, which a client with no
+		// session sends along with the request.
 		wp_set_current_user( $user );
-		$response = $this->request( 'DELETE', "/sigil/v1/users/{$user}/methods/totp" );
+		$response = $this->request( 'DELETE', "/sigil/v1/users/{$user}/methods/totp", array( 'password' => 'pass-word-1' ) );
 
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertSame( array( 'email' ), array_column( $response->get_data()['methods'], 'id' ) );

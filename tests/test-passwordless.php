@@ -480,4 +480,44 @@ class Test_Passwordless extends WP_UnitTestCase {
 		$this->assertTrue( $done );
 		$this->assertSame( 3, $after );
 	}
+
+	// The options are fetched before anyone is known, so every request for them
+	// is anonymous and each one writes to the database. One row per ceremony,
+	// and only so many ceremonies per address.
+	public function test_a_ceremony_is_one_stored_row(): void {
+		global $wpdb;
+
+		if ( wp_using_ext_object_cache() ) {
+			$this->markTestSkipped( 'Transients live in the object cache here.' );
+		}
+
+		$before = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_sigil\\_%'" );
+		$this->assertIsArray( Sigil\Passwordless::instance()->mint() );
+		$after = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_sigil\\_%'" );
+
+		$this->assertSame( 1, $after - $before );
+	}
+
+	public function test_one_address_can_only_mint_so_many_ceremonies(): void {
+		$previous               = $_SERVER['REMOTE_ADDR'] ?? null;
+		$_SERVER['REMOTE_ADDR'] = '203.0.113.60';
+
+		$minted = 0;
+		for ( $i = 0; $i < 200; $i++ ) {
+			if ( null !== Sigil\Passwordless::instance()->mint() ) {
+				++$minted;
+			}
+		}
+
+		$response = rest_do_request( new WP_REST_Request( 'GET', '/sigil/v1/passwordless' ) );
+
+		$_SERVER['REMOTE_ADDR'] = '203.0.113.61';
+		$elsewhere              = Sigil\Passwordless::instance()->mint();
+		$_SERVER['REMOTE_ADDR'] = $previous;
+
+		$this->assertGreaterThan( 10, $minted, 'a normal amount of use is not refused' );
+		$this->assertLessThan( 200, $minted );
+		$this->assertSame( 429, $response->get_status() );
+		$this->assertIsArray( $elsewhere, 'another address is not affected' );
+	}
 }

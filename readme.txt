@@ -92,7 +92,7 @@ Use one of the backup codes shown when you first set up 2FA. If you did not keep
 
 = Someone keeps guessing my password and now I can't sign in. =
 
-After five wrong passwords, password sign-in for that account pauses for 15 minutes, longer if it keeps happening, up to an hour. A passkey still signs you in during the pause. To reopen it straight away, anyone with server access runs `wp sigil unlock <your-username>`. Add `--ip=<address>` to clear an address that was paused too, and `--challenge` to clear wrong second-factor codes as well.
+After five wrong passwords, password sign-in for that account pauses for 15 minutes, longer if it keeps happening, up to an hour. A passkey still signs you in during the pause. To reopen it straight away, anyone with server access runs `wp sigil unlock <your-username>`. Add `--ip=<address>` to clear an address that was paused too, and `--challenge` to clear wrong second-factor codes as well. A device you've told Sigil to remember also gets past the pause with the right password. Behind a proxy or CDN every visitor can share the proxy's address, so return the real visitor address from the `sigil_client_ip` filter, and only when your proxy sets it.
 
 = Does the plugin require an external account or service? =
 
@@ -131,8 +131,16 @@ Yes. Settings → Sigil lets you pick exactly which roles are required, and set 
 * New: limits on wrong passwords per account and per IP address, with `wp sigil unlock` to reopen an account.
 * New: import passkeys, authenticator apps and backup codes from other two-factor plugins (see the FAQ).
 * New: password managers can fill authenticator codes, and pasted codes with spaces or dashes work.
+* New: adding, replacing or removing a sign-in method asks you to confirm it's you if you signed in more than 10 minutes ago.
+* New: "Forget trusted devices" on your two-factor screen.
+* Improved: the change email now names the passkey that was added or removed, and mentions new backup codes and a replaced authenticator.
+* Improved: a passkey an administrator registers for someone else works only after their password, never on its own.
 * Improved: the two-factor screen works from the keyboard alone, and wrong-code errors are announced to screen readers.
 * Fixed: changing your password from a front-end form, such as WooCommerce's account page, no longer signs you out.
+* Fixed: registering a passkey now sends the change email and forgets trusted devices, like every other method.
+* Fixed: a remembered device gets past a password lockout, so someone guessing can't keep you out.
+* Fixed: anonymous requests for passkey sign-in options are limited per IP address.
+* Fixed: deleting the plugin on multisite removes all its network settings.
 * Sigil Pro is now a separate add-on. If you used the combined Pro build, install the new Sigil Pro add-on alongside Sigil; your settings carry over.
 
 = 0.4.1 =

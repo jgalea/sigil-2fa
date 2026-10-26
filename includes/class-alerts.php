@@ -22,9 +22,9 @@ final class Alerts {
 	private static ?Alerts $instance = null;
 
 	/**
-	 * Method ids seen before the change, so the mail can say which one it was.
+	 * What the account held before the change, so the mail can say what it was.
 	 *
-	 * @var array<int, list<string>>
+	 * @var array<int, array{methods: list<string>, passkeys: array<int, array{label: string, second_factor_only: bool}>, totp: string, backup: string}>
 	 */
 	private array $before = array();
 
@@ -42,7 +42,33 @@ final class Alerts {
 	}
 
 	public function remember( int $user_id ): void {
-		$this->before[ $user_id ] = array_keys( Store::methods( $user_id ) );
+		$this->before[ $user_id ] = self::snapshot( $user_id );
+	}
+
+	/**
+	 * Down to the credential, because the method list alone cannot see the
+	 * changes that matter most: a second passkey, a replaced one, a new
+	 * authenticator secret or a fresh set of backup codes all leave it as it
+	 * was.
+	 *
+	 * @return array{methods: list<string>, passkeys: array<int, array{label: string, second_factor_only: bool}>, totp: string, backup: string}
+	 */
+	private static function snapshot( int $user_id ): array {
+		$methods  = Store::methods( $user_id );
+		$passkeys = array();
+		foreach ( Credentials::for_user( $user_id ) as $row ) {
+			$passkeys[ (int) $row->id ] = array(
+				'label'              => (string) $row->label,
+				'second_factor_only' => 1 === (int) ( $row->second_factor_only ?? 0 ),
+			);
+		}
+
+		return array(
+			'methods'  => array_keys( $methods ),
+			'passkeys' => $passkeys,
+			'totp'     => isset( $methods['totp']['secret'] ) ? hash( 'sha256', (string) wp_json_encode( $methods['totp']['secret'] ) ) : '',
+			'backup'   => isset( $methods['backup']['codes'] ) ? hash( 'sha256', (string) wp_json_encode( $methods['backup']['codes'] ) ) : '',
+		);
 	}
 
 	public function notify( int $user_id ): void {
@@ -66,7 +92,7 @@ final class Alerts {
 		}
 
 		$before = $this->before[ $user_id ] ?? null;
-		$after  = array_keys( Store::methods( $user_id ) );
+		$after  = self::snapshot( $user_id );
 		unset( $this->before[ $user_id ] );
 
 		// Nothing observable changed, so there is nothing worth a mail.
@@ -74,32 +100,24 @@ final class Alerts {
 			return;
 		}
 
-		$added   = null === $before ? $after : array_values( array_diff( $after, $before ) );
-		$removed = null === $before ? array() : array_values( array_diff( $before, $after ) );
-
-		if ( array() === $added && array() === $removed ) {
+		$lines = null === $before ? self::method_lines( $after['methods'], array() ) : self::change_lines( $before, $after );
+		if ( array() === $lines ) {
 			return;
+		}
+
+		$current = (int) get_current_user_id();
+		$actor   = $current > 0 && $current !== $user_id ? get_userdata( $current ) : null;
+		if ( $actor instanceof \WP_User ) {
+			$lines[] = sprintf(
+				/* translators: %s: display name of the person who made the change */
+				__( 'Changed by %s, not from your own account.', 'sigil-2fa' ),
+				$actor->display_name
+			);
 		}
 
 		$site_name = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
 		if ( '' === $site_name ) {
 			$site_name = home_url();
-		}
-
-		$lines = array();
-		if ( array() !== $added ) {
-			$lines[] = sprintf(
-				/* translators: %s: comma-separated list of method names */
-				__( 'Added: %s', 'sigil-2fa' ),
-				implode( ', ', self::labels( $added ) )
-			);
-		}
-		if ( array() !== $removed ) {
-			$lines[] = sprintf(
-				/* translators: %s: comma-separated list of method names */
-				__( 'Removed: %s', 'sigil-2fa' ),
-				implode( ', ', self::labels( $removed ) )
-			);
 		}
 
 		$subject = sprintf(
@@ -205,6 +223,73 @@ final class Alerts {
 
 	public static function request_ip(): string {
 		return Request::client_ip();
+	}
+
+	/**
+	 * @param array{methods: list<string>, passkeys: array<int, array{label: string, second_factor_only: bool}>, totp: string, backup: string} $before
+	 * @param array{methods: list<string>, passkeys: array<int, array{label: string, second_factor_only: bool}>, totp: string, backup: string} $after
+	 * @return list<string>
+	 */
+	private static function change_lines( array $before, array $after ): array {
+		$lines = self::method_lines(
+			array_values( array_diff( $after['methods'], $before['methods'] ) ),
+			array_values( array_diff( $before['methods'], $after['methods'] ) )
+		);
+
+		foreach ( array_diff_key( $after['passkeys'], $before['passkeys'] ) as $passkey ) {
+			$lines[] = $passkey['second_factor_only']
+				? sprintf(
+					/* translators: %s: passkey label */
+					__( 'A passkey named "%s" was added. It was registered for you, so it only works after your password.', 'sigil-2fa' ),
+					$passkey['label']
+				)
+				: sprintf(
+					/* translators: %s: passkey label */
+					__( 'A passkey named "%s" was added.', 'sigil-2fa' ),
+					$passkey['label']
+				);
+		}
+		foreach ( array_diff_key( $before['passkeys'], $after['passkeys'] ) as $passkey ) {
+			$lines[] = sprintf(
+				/* translators: %s: passkey label */
+				__( 'A passkey named "%s" was removed.', 'sigil-2fa' ),
+				$passkey['label']
+			);
+		}
+
+		if ( '' !== $before['totp'] && '' !== $after['totp'] && $before['totp'] !== $after['totp'] ) {
+			$lines[] = __( 'Your authenticator app was replaced with a new one.', 'sigil-2fa' );
+		}
+		if ( '' !== $before['backup'] && '' !== $after['backup'] && $before['backup'] !== $after['backup'] ) {
+			$lines[] = __( 'New backup codes were generated, and the old ones stopped working.', 'sigil-2fa' );
+		}
+
+		return $lines;
+	}
+
+	/**
+	 * @param list<string> $added
+	 * @param list<string> $removed
+	 * @return list<string>
+	 */
+	private static function method_lines( array $added, array $removed ): array {
+		$lines = array();
+		if ( array() !== $added ) {
+			$lines[] = sprintf(
+				/* translators: %s: comma-separated list of method names */
+				__( 'Added: %s', 'sigil-2fa' ),
+				implode( ', ', self::labels( $added ) )
+			);
+		}
+		if ( array() !== $removed ) {
+			$lines[] = sprintf(
+				/* translators: %s: comma-separated list of method names */
+				__( 'Removed: %s', 'sigil-2fa' ),
+				implode( ', ', self::labels( $removed ) )
+			);
+		}
+
+		return $lines;
 	}
 
 	/**

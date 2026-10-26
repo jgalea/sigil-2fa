@@ -158,4 +158,83 @@ class Test_Trusted_Devices extends WP_UnitTestCase {
 
 		$this->assertFalse( $device->is_trusted( (int) $user->ID, $token ) );
 	}
+
+	public function test_the_owner_can_forget_every_trusted_device(): void {
+		$uid   = self::factory()->user->create();
+		$token = $this->td()->trust_current_device( $uid );
+		wp_set_current_user( $uid );
+
+		$_POST = array(
+			'user_id'  => (string) $uid,
+			'_wpnonce' => wp_create_nonce( 'sigil_forget_devices_' . $uid ),
+		);
+		$_REQUEST = $_POST;
+		$this->assertTrue( $this->post_and_catch_redirect( 'sigil_forget_devices' ) );
+
+		$this->assertFalse( $this->td()->is_trusted( $uid, $token ) );
+	}
+
+	public function test_nobody_else_can_forget_them(): void {
+		$uid   = self::factory()->user->create();
+		$token = $this->td()->trust_current_device( $uid );
+		$admin = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		if ( is_multisite() ) {
+			grant_super_admin( $admin );
+		}
+		wp_set_current_user( $admin );
+
+		$_POST = array(
+			'user_id'  => (string) $uid,
+			'_wpnonce' => wp_create_nonce( 'sigil_forget_devices_' . $uid ),
+		);
+		$_REQUEST = $_POST;
+		try {
+			$this->post_and_catch_redirect( 'sigil_forget_devices' );
+		} catch ( WPDieException $e ) {
+			unset( $e );
+		}
+
+		$this->assertTrue( $this->td()->is_trusted( $uid, $token ) );
+	}
+
+	public function test_the_enrolment_screen_offers_it_only_on_your_own_account(): void {
+		$uid = self::factory()->user->create();
+		$this->td()->trust_current_device( $uid );
+
+		wp_set_current_user( $uid );
+		ob_start();
+		\Sigil\Enrolment::instance()->render_enrol_ui( $uid, false );
+		$this->assertStringContainsString( 'value="sigil_forget_devices"', (string) ob_get_clean() );
+
+		$admin = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		if ( is_multisite() ) {
+			grant_super_admin( $admin );
+		}
+		wp_set_current_user( $admin );
+		ob_start();
+		\Sigil\Enrolment::instance()->render_enrol_ui( $uid, false );
+		$this->assertStringNotContainsString( 'value="sigil_forget_devices"', (string) ob_get_clean() );
+	}
+
+	/**
+	 * Run an admin-post handler up to its redirect, which would otherwise exit.
+	 */
+	private function post_and_catch_redirect( string $action ): bool {
+		$stop = static function () {
+			throw new RuntimeException( 'redirected' );
+		};
+		add_filter( 'sigil_enrol_redirect', $stop );
+
+		try {
+			do_action( 'admin_post_' . $action );
+		} catch ( RuntimeException $e ) {
+			return 'redirected' === $e->getMessage();
+		} finally {
+			remove_filter( 'sigil_enrol_redirect', $stop );
+			$_POST    = array();
+			$_REQUEST = array();
+		}
+
+		return false;
+	}
 }

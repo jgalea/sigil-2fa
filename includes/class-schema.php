@@ -51,6 +51,7 @@ final class Schema {
 			label VARCHAR(190) NOT NULL DEFAULT '',
 			user_handle VARBINARY(64) NOT NULL DEFAULT '',
 			discoverable TINYINT(1) DEFAULT NULL,
+			second_factor_only TINYINT(1) NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL,
 			last_used_at DATETIME DEFAULT NULL,
 			PRIMARY KEY  (id),

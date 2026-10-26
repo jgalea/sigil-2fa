@@ -10,6 +10,10 @@
  * @var bool               $show_backup
  * @var string             $active
  * @var \Sigil\Provider|null $backup_provider
+ * @var bool               $needs_step_up
+ * @var list<\Sigil\Provider> $step_up
+ * @var bool               $own_account
+ * @var int                $trusted_count
  */
 
 declare( strict_types=1 );
@@ -28,7 +32,15 @@ $methods       = isset( $methods ) && is_array( $methods ) ? $methods : array();
 $notices       = isset( $notices ) && is_array( $notices ) ? $notices : array( 'type' => '', 'code' => '', 'message' => '' );
 $show_backup   = ! empty( $show_backup );
 $active        = isset( $active ) ? (string) $active : '';
+$needs_step_up = ! empty( $needs_step_up );
+$step_up       = isset( $step_up ) && is_array( $step_up ) ? $step_up : array();
+$own_account   = ! empty( $own_account );
+$trusted_count = isset( $trusted_count ) ? (int) $trusted_count : 0;
 $post_url      = admin_url( 'admin-post.php' );
+// The profile screen draws this inside its own form, where a form of ours
+// would be swallowed by it, so the forms added for confirming and for
+// forgetting devices live on the two-factor page and the front-end page.
+$standalone    = $is_setup_page || ! is_admin();
 ?>
 <div class="sigil-enrol<?php echo $is_setup_page ? ' wrap' : ''; ?>">
 	<?php if ( $is_setup_page ) : ?>
@@ -53,6 +65,12 @@ $post_url      = admin_url( 'admin-post.php' );
 					break;
 				case 'preferred':
 					echo esc_html__( 'You will be asked for this method first from now on.', 'sigil-2fa' );
+					break;
+				case 'confirmed':
+					echo esc_html__( 'Confirmed. You can change your sign-in methods for the next few minutes.', 'sigil-2fa' );
+					break;
+				case 'devices_forgotten':
+					echo esc_html__( 'Every trusted device has been forgotten. Each one will be asked for a second factor at its next sign-in.', 'sigil-2fa' );
 					break;
 				default:
 					echo esc_html__( 'Saved.', 'sigil-2fa' );
@@ -136,7 +154,37 @@ $post_url      = admin_url( 'admin-post.php' );
 	}
 	?>
 
-	<?php if ( $active_provider ) : ?>
+	<?php if ( $needs_step_up ) : ?>
+		<div class="sigil-enrol__panel sigil-enrol__step-up">
+			<h3><?php echo esc_html__( 'Confirm it is you', 'sigil-2fa' ); ?></h3>
+			<p><?php echo esc_html__( 'Before adding, replacing or removing a sign-in method, confirm it is you with your password or one of your current methods. Signing in again works too.', 'sigil-2fa' ); ?></p>
+			<?php if ( ! $standalone ) : ?>
+				<p><a class="button" href="<?php echo esc_url( admin_url( 'users.php?page=' . \Sigil\Enrolment::PAGE_SLUG ) ); ?>"><?php echo esc_html__( 'Confirm on the two-factor page', 'sigil-2fa' ); ?></a></p>
+			<?php else : ?>
+			<form method="post" action="<?php echo esc_url( $post_url ); ?>" class="sigil-enrol__form">
+				<input type="hidden" name="action" value="sigil_step_up" />
+				<input type="hidden" name="user_id" value="<?php echo esc_attr( (string) $user_id ); ?>" />
+				<input type="hidden" name="method" value="<?php echo esc_attr( $active ); ?>" />
+				<?php wp_nonce_field( 'sigil_step_up_' . $user_id ); ?>
+				<p>
+					<label for="sigil-step-up-password"><?php echo esc_html__( 'Password', 'sigil-2fa' ); ?></label>
+					<input type="password" name="sigil_step_up_password" id="sigil-step-up-password" class="regular-text" autocomplete="current-password" />
+				</p>
+				<?php foreach ( $step_up as $factor ) : ?>
+					<?php if ( 'totp' === $factor->id() ) : ?>
+						<p>
+							<label for="sigil-step-up-code"><?php echo esc_html__( 'Or a code from your authenticator app', 'sigil-2fa' ); ?></label>
+							<input type="text" name="sigil_step_up_code" id="sigil-step-up-code" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" />
+						</p>
+					<?php elseif ( 'passkey' === $factor->id() ) : ?>
+						<?php $factor->render_challenge( $user_id ); ?>
+					<?php endif; ?>
+				<?php endforeach; ?>
+				<p><button type="submit" class="button button-primary"><?php echo esc_html__( 'Confirm', 'sigil-2fa' ); ?></button></p>
+			</form>
+			<?php endif; ?>
+		</div>
+	<?php elseif ( $active_provider ) : ?>
 		<div class="sigil-enrol__panel" data-provider="<?php echo esc_attr( $active_provider->id() ); ?>">
 			<h3><?php echo esc_html( $active_provider->label() ); ?></h3>
 
@@ -236,6 +284,28 @@ $post_url      = admin_url( 'admin-post.php' );
 					</form>
 				<?php endif; ?>
 			<?php endif; ?>
+		</div>
+	<?php endif; ?>
+
+	<?php if ( $standalone && $own_account && $trusted_count > 0 ) : ?>
+		<div class="sigil-enrol__devices">
+			<form method="post" action="<?php echo esc_url( $post_url ); ?>" class="sigil-enrol__form">
+				<input type="hidden" name="action" value="sigil_forget_devices" />
+				<input type="hidden" name="user_id" value="<?php echo esc_attr( (string) $user_id ); ?>" />
+				<?php wp_nonce_field( 'sigil_forget_devices_' . $user_id ); ?>
+				<p class="description">
+					<?php
+					echo esc_html(
+						sprintf(
+							/* translators: %d: number of trusted devices */
+							_n( '%d device skips the second step when you sign in.', '%d devices skip the second step when you sign in.', $trusted_count, 'sigil-2fa' ),
+							$trusted_count
+						)
+					);
+					?>
+				</p>
+				<p><button type="submit" class="button"><?php echo esc_html__( 'Forget trusted devices', 'sigil-2fa' ); ?></button></p>
+			</form>
 		</div>
 	<?php endif; ?>
 </div>

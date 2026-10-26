@@ -57,6 +57,7 @@ final class Plugin {
 		Login_Guard::instance();
 		Password_Limit::instance();
 
+		require_once SIGIL_DIR . 'includes/class-step-up.php';
 		require_once SIGIL_DIR . 'includes/class-enrolment.php';
 		Enrolment::instance();
 

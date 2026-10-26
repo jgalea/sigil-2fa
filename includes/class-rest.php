@@ -45,6 +45,29 @@ final class REST {
 			)
 		);
 
+		// Fresh proof for changing your own methods, kept in the session the
+		// request came from. GET says whether it is needed and what can give it.
+		register_rest_route(
+			self::NAMESPACE_V1,
+			'/me/confirm',
+			array(
+				array(
+					'methods'             => \WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_confirm' ),
+					'permission_callback' => static function () {
+						return is_user_logged_in();
+					},
+				),
+				array(
+					'methods'             => \WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'confirm' ),
+					'permission_callback' => static function () {
+						return is_user_logged_in();
+					},
+				),
+			)
+		);
+
 		register_rest_route(
 			self::NAMESPACE_V1,
 			'/users/(?P<id>\d+)',
@@ -276,15 +299,77 @@ final class REST {
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function remove_method( \WP_REST_Request $request ) {
-		$id     = (int) $request['id'];
+		$id = (int) $request['id'];
+
+		// The proof can travel with the request, for a client with no session
+		// to keep it in.
+		if ( Step_Up::required( $id ) && ! Step_Up::satisfied( $id ) && self::carries_proof( $request ) ) {
+			$proof = Step_Up::prove( $id, self::proof( $request ) );
+			if ( is_wp_error( $proof ) ) {
+				return $this->as_rest_error( $proof, 'sigil_rate_limited' === $proof->get_error_code() ? 429 : 403 );
+			}
+		}
+
 		$result = Enrolment::instance()->remove_method( $id, (string) $request['provider'] );
 
 		if ( is_wp_error( $result ) ) {
-			$status = 'sigil_forbidden' === $result->get_error_code() ? 403 : 400;
+			$status = in_array( $result->get_error_code(), array( 'sigil_forbidden', 'sigil_step_up_required' ), true ) ? 403 : 400;
 			return $this->as_rest_error( $result, $status );
 		}
 
 		return rest_ensure_response( $this->status_for( $id ) );
+	}
+
+	/**
+	 * @return \WP_REST_Response
+	 */
+	public function get_confirm() {
+		$id      = get_current_user_id();
+		$factors = array();
+		foreach ( Step_Up::factors( $id ) as $provider ) {
+			$factors[] = $provider->id();
+		}
+
+		return rest_ensure_response(
+			array(
+				'required'        => Step_Up::required( $id ) && ! Step_Up::satisfied( $id ),
+				'window'          => Step_Up::WINDOW,
+				'factors'         => $factors,
+				'passkey_options' => in_array( 'passkey', $factors, true ) ? $this->passkey_options( $id ) : null,
+			)
+		);
+	}
+
+	/**
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function confirm( \WP_REST_Request $request ) {
+		$result = Step_Up::prove( get_current_user_id(), self::proof( $request ) );
+		if ( is_wp_error( $result ) ) {
+			return $this->as_rest_error( $result, 'sigil_rate_limited' === $result->get_error_code() ? 429 : 403 );
+		}
+
+		return rest_ensure_response( array( 'confirmed' => true ) );
+	}
+
+	private static function carries_proof( \WP_REST_Request $request ): bool {
+		return array() !== array_filter( self::proof( $request ) );
+	}
+
+	/**
+	 * @return array{password: string, code: string, passkey_assertion: string}
+	 */
+	private static function proof( \WP_REST_Request $request ): array {
+		$assertion = $request->get_param( 'passkey_assertion' );
+		if ( is_array( $assertion ) ) {
+			$assertion = (string) wp_json_encode( $assertion );
+		}
+
+		return array(
+			'password'          => is_string( $request->get_param( 'password' ) ) ? (string) $request->get_param( 'password' ) : '',
+			'code'              => is_string( $request->get_param( 'code' ) ) ? sanitize_text_field( (string) $request->get_param( 'code' ) ) : '',
+			'passkey_assertion' => is_string( $assertion ) ? $assertion : '',
+		);
 	}
 
 	/**
@@ -443,6 +528,13 @@ final class REST {
 	 */
 	public function get_passwordless() {
 		$minted = Passwordless::instance()->mint();
+		if ( null === $minted && Passwordless::mint_refused() ) {
+			return new \WP_Error(
+				'sigil_rate_limited',
+				__( 'Too many sign-in attempts from this address. Please wait a few minutes and try again.', 'sigil-2fa' ),
+				array( 'status' => 429 )
+			);
+		}
 		if ( null === $minted ) {
 			return new \WP_Error(
 				'sigil_passwordless_unavailable',

@@ -12,6 +12,7 @@ final class Credentials {
 	 * @param string    $user_handle  The handle the authenticator was given, empty when it is not known
 	 *                                (passkeys registered before it was stored, or brought in by an importer).
 	 * @param bool|null $discoverable Whether the browser reported a resident key, null when it did not say.
+	 * @param bool      $second_factor_only Registered by someone other than the owner, so never a sign-in on its own.
 	 * @return int Inserted row ID, or 0 on failure.
 	 */
 	public static function add(
@@ -22,7 +23,8 @@ final class Credentials {
 		string $label,
 		string $transports,
 		string $user_handle = '',
-		?bool $discoverable = null
+		?bool $discoverable = null,
+		bool $second_factor_only = false
 	): int {
 		global $wpdb;
 
@@ -46,6 +48,13 @@ final class Credentials {
 		if ( null !== $discoverable ) {
 			$row['discoverable'] = $discoverable ? 1 : 0;
 			$formats[]           = '%d';
+		}
+
+		// Named only when set, so an ordinary registration still succeeds on a
+		// table the upgrade has not reached yet.
+		if ( $second_factor_only ) {
+			$row['second_factor_only'] = 1;
+			$formats[]                 = '%d';
 		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
@@ -78,6 +87,7 @@ final class Credentials {
 	 *   label: string,
 	 *   user_handle: string,
 	 *   discoverable: int|string|null,
+	 *   second_factor_only: int|string,
 	 *   created_at: string,
 	 *   last_used_at: string|null
 	 * }>

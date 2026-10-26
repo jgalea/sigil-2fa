@@ -479,4 +479,47 @@ class Test_Password_Limit extends WP_UnitTestCase {
 
 		$this->assertSame( array( true, true, true, true ), $merged );
 	}
+
+	// Anyone can spend an account's allowance from anywhere, so an administrator
+	// with only an authenticator would be kept out for as long as somebody kept
+	// guessing. A device they trusted after passing the second factor is proof
+	// enough that this is them.
+	public function test_a_trusted_device_gets_past_a_locked_account(): void {
+		\Sigil\Trusted_Devices::instance()->register();
+		$user = $this->user();
+		$this->fail_times( $user->user_login, 6 );
+		$this->assertLimited( wp_authenticate( $user->user_login, self::PASS ) );
+
+		$_COOKIE['sigil_pro_trusted'] = \Sigil\Trusted_Devices::instance()->trust_current_device( (int) $user->ID );
+		$result                       = wp_authenticate( $user->user_login, self::PASS );
+		unset( $_COOKIE['sigil_pro_trusted'] );
+
+		$this->assertInstanceOf( WP_User::class, $result );
+	}
+
+	public function test_a_device_trusted_for_another_account_does_not(): void {
+		\Sigil\Trusted_Devices::instance()->register();
+		$user  = $this->user();
+		$other = $this->user();
+		$this->fail_times( $user->user_login, 6 );
+
+		$_COOKIE['sigil_pro_trusted'] = \Sigil\Trusted_Devices::instance()->trust_current_device( (int) $other->ID );
+		$result                       = wp_authenticate( $user->user_login, self::PASS );
+		unset( $_COOKIE['sigil_pro_trusted'] );
+
+		$this->assertLimited( $result );
+	}
+
+	public function test_a_trusted_device_still_counts_against_the_address(): void {
+		\Sigil\Trusted_Devices::instance()->register();
+		$this->limits( array( 'ip_attempts' => 3 ) );
+		$user = $this->user();
+		$this->fail_times( 'spray-one', 3 );
+
+		$_COOKIE['sigil_pro_trusted'] = \Sigil\Trusted_Devices::instance()->trust_current_device( (int) $user->ID );
+		$result                       = wp_authenticate( $user->user_login, self::PASS );
+		unset( $_COOKIE['sigil_pro_trusted'] );
+
+		$this->assertLimited( $result );
+	}
 }

@@ -30,6 +30,16 @@ final class Passwordless {
 	private const BINDING_TTL    = 5 * MINUTE_IN_SECONDS;
 
 	/**
+	 * Ceremonies one address may mint per window. Each is a stored row asked
+	 * for before anyone is known, so without a ceiling any visitor can write
+	 * to the database as fast as they can send requests. A login page asks
+	 * once or twice per visit, which leaves room for an office behind one
+	 * address.
+	 */
+	private const MINT_LIMIT  = 60;
+	private const MINT_WINDOW = 15 * MINUTE_IN_SECONDS;
+
+	/**
 	 * What core and the cookie check say when no password was typed. Anything
 	 * else came from a filter that refused the sign-in, and stands.
 	 */
@@ -127,12 +137,18 @@ final class Passwordless {
 	 * value per browser, so several tabs or the autofill request and the button
 	 * can each hold a ceremony at once.
 	 *
+	 * Null when passwordless sign-in is off, or when this address has asked for
+	 * too many; mint_refused() tells the two apart.
+	 *
 	 * @return array{ceremony: string, options: \stdClass}|null
 	 */
 	public function mint(): ?array {
 		$passkey = Providers::instance()->get( 'passkey' );
-		$minted  = self::enabled() && $passkey instanceof Providers\Passkey ? $passkey->discoverable_options() : null;
-		if ( null === $minted ) {
+		if ( ! self::enabled() || ! $passkey instanceof Providers\Passkey ) {
+			return null;
+		}
+
+		if ( Rate_Limit::reserve( self::mint_key(), self::MINT_WINDOW ) > self::MINT_LIMIT ) {
 			return null;
 		}
 
@@ -140,11 +156,28 @@ final class Passwordless {
 		if ( '' === $binding ) {
 			$binding = bin2hex( random_bytes( 32 ) );
 		}
+
+		$minted = $passkey->discoverable_options( hash( 'sha256', $binding ) );
+		if ( null === $minted ) {
+			return null;
+		}
+
 		self::send_binding( $binding );
 
-		set_transient( self::binding_key( $minted['ceremony'] ), hash( 'sha256', $binding ), self::BINDING_TTL );
-
 		return $minted;
+	}
+
+	/**
+	 * Whether this address has used up its ceremonies for now.
+	 */
+	public static function mint_refused(): bool {
+		return Rate_Limit::count( self::mint_key() ) > self::MINT_LIMIT;
+	}
+
+	private static function mint_key(): string {
+		$ip = Challenge::ip_rate_key();
+
+		return '' === $ip ? '' : 'plm:' . $ip;
 	}
 
 	private static function binding_from_cookie(): string {
@@ -174,24 +207,6 @@ final class Passwordless {
 				'samesite' => 'Strict',
 			)
 		);
-	}
-
-	private static function binding_key( string $ceremony ): string {
-		return 'sigil_pl_bind_' . hash( 'sha256', $ceremony );
-	}
-
-	/**
-	 * Whether the ceremony is being spent by the browser it was minted for.
-	 * Read once: the stored hash goes with the ceremony either way.
-	 */
-	private static function bound_here( string $ceremony ): bool {
-		$key    = self::binding_key( $ceremony );
-		$stored = get_transient( $key );
-		delete_transient( $key );
-
-		$binding = self::binding_from_cookie();
-
-		return is_string( $stored ) && '' !== $binding && hash_equals( $stored, hash( 'sha256', $binding ) );
 	}
 
 	/**
@@ -303,13 +318,15 @@ final class Passwordless {
 			return self::rate_limited();
 		}
 
-		$failed = new \WP_Error( 'sigil_passkey_failed', __( 'That passkey could not be verified. Please try again.', 'sigil-2fa' ) );
-		if ( ! self::bound_here( $ceremony ) || ! self::origin_allowed() ) {
+		$failed  = new \WP_Error( 'sigil_passkey_failed', __( 'That passkey could not be verified. Please try again.', 'sigil-2fa' ) );
+		$binding = self::binding_from_cookie();
+		if ( '' === $binding || ! self::origin_allowed() ) {
 			return $failed;
 		}
 
+		// The ceremony only verifies for the browser it was minted for.
 		$passkey = Providers::instance()->get( 'passkey' );
-		$user_id = $passkey instanceof Providers\Passkey ? $passkey->discoverable_owner( $ceremony, $assertion ) : 0;
+		$user_id = $passkey instanceof Providers\Passkey ? $passkey->discoverable_owner( $ceremony, $assertion, hash( 'sha256', $binding ) ) : 0;
 		$user    = $user_id > 0 ? get_userdata( $user_id ) : false;
 		if ( ! $user instanceof \WP_User ) {
 			return $failed;

@@ -266,6 +266,38 @@ final class Trusted_Devices {
 		delete_user_meta( $user_id, self::META_KEY );
 	}
 
+	/**
+	 * The owner's own "forget every device", which also drops the token from
+	 * the browser they asked from.
+	 */
+	public function forget( int $user_id ): void {
+		$this->revoke_all( $user_id );
+
+		unset( $_COOKIE[ self::COOKIE ] );
+		if ( ! headers_sent() ) {
+			setcookie(
+				self::COOKIE,
+				'',
+				array(
+					'expires'  => time() - YEAR_IN_SECONDS,
+					'path'     => defined( 'COOKIEPATH' ) ? COOKIEPATH : '/',
+					'domain'   => defined( 'COOKIE_DOMAIN' ) ? COOKIE_DOMAIN : '',
+					'httponly' => true,
+					'samesite' => 'Lax',
+				)
+			);
+		}
+	}
+
+	/**
+	 * Whether this request carries a live trusted-device token for the account.
+	 */
+	public function trusts_request( int $user_id ): bool {
+		$raw = isset( $_COOKIE[ self::COOKIE ] ) ? (string) $_COOKIE[ self::COOKIE ] : '';
+
+		return $this->token_is_valid( $user_id, $raw );
+	}
+
 	public function count_for( int $user_id ): int {
 		return count( $this->prune( $user_id ) );
 	}

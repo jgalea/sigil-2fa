@@ -26,6 +26,8 @@ final class Enrolment {
 		add_action( 'admin_post_sigil_remove_method', array( $this, 'handle_remove_post' ) );
 		add_action( 'admin_post_sigil_prefer_method', array( $this, 'handle_prefer_post' ) );
 		add_action( 'admin_post_sigil_regenerate_backup', array( $this, 'handle_regenerate_backup_post' ) );
+		add_action( 'admin_post_sigil_step_up', array( $this, 'handle_step_up_post' ) );
+		add_action( 'admin_post_sigil_forget_devices', array( $this, 'handle_forget_devices_post' ) );
 		add_action( 'show_user_profile', array( $this, 'render_profile_section' ) );
 		add_action( 'edit_user_profile', array( $this, 'render_profile_section' ) );
 	}
@@ -171,6 +173,10 @@ final class Enrolment {
 			);
 		}
 
+		if ( ! Step_Up::allows( $user_id ) ) {
+			return Step_Up::error();
+		}
+
 		$provider_id = sanitize_key( $provider_id );
 		if ( '' === $provider_id ) {
 			return new \WP_Error(
@@ -178,6 +184,8 @@ final class Enrolment {
 				__( 'Unknown authentication method.', 'sigil-2fa' )
 			);
 		}
+
+		$first = (int) get_current_user_id() === $user_id && ! Store::has_any( $user_id );
 
 		$provider = Providers::instance()->get( $provider_id );
 		if ( null === $provider ) {
@@ -213,6 +221,10 @@ final class Enrolment {
 		 */
 		do_action( 'sigil_methods_changed', $user_id );
 
+		if ( $first ) {
+			Step_Up::record( $user_id );
+		}
+
 		return true;
 	}
 
@@ -228,6 +240,10 @@ final class Enrolment {
 				'sigil_forbidden',
 				__( 'You are not allowed to change two-factor methods for this user.', 'sigil-2fa' )
 			);
+		}
+
+		if ( ! Step_Up::allows( $user_id ) ) {
+			return Step_Up::error();
 		}
 
 		$provider_id = sanitize_key( $provider_id );
@@ -355,13 +371,94 @@ final class Enrolment {
 			wp_die( esc_html__( 'You are not allowed to change two-factor methods for this user.', 'sigil-2fa' ), '', array( 'response' => 403 ) );
 		}
 
-		$backup = Providers::instance()->get( 'backup' );
-		if ( ! $backup instanceof Providers\Backup_Codes ) {
-			$this->redirect_with_status( $user_id, 'error', 'backup_unavailable' );
+		$result = $this->regenerate_backup_codes( $user_id );
+		if ( is_wp_error( $result ) ) {
+			$this->redirect_with_status( $user_id, 'error', $result->get_error_code(), $result->get_error_message(), 'backup' );
 		}
 
-		$backup->generate( $user_id );
 		$this->redirect_with_status( $user_id, 'success', 'enrolled_backup', '', 'backup' );
+	}
+
+	/**
+	 * Replace the backup codes. A fresh set is as good as a factor of its own
+	 * to whoever reads it, so it is guarded and announced like one.
+	 *
+	 * @return true|\WP_Error
+	 */
+	public function regenerate_backup_codes( int $user_id ) {
+		if ( ! $this->can_manage_methods( $user_id ) ) {
+			return new \WP_Error(
+				'sigil_forbidden',
+				__( 'You are not allowed to change two-factor methods for this user.', 'sigil-2fa' )
+			);
+		}
+
+		if ( ! Step_Up::allows( $user_id ) ) {
+			return Step_Up::error();
+		}
+
+		$backup = Providers::instance()->get( 'backup' );
+		if ( ! $backup instanceof Providers\Backup_Codes ) {
+			return new \WP_Error( 'backup_unavailable', __( 'Backup codes are not available.', 'sigil-2fa' ) );
+		}
+
+		/** This action is documented in includes/class-enrolment.php */
+		do_action( 'sigil_before_methods_change', $user_id );
+		$backup->generate( $user_id );
+		/** This action is documented in includes/class-enrolment.php */
+		do_action( 'sigil_methods_changed', $user_id );
+
+		return true;
+	}
+
+	public function handle_step_up_post(): void {
+		$user_id = isset( $_POST['user_id'] ) ? absint( wp_unslash( $_POST['user_id'] ) ) : 0;
+
+		check_admin_referer( 'sigil_step_up_' . $user_id );
+
+		if ( $user_id <= 0 || (int) get_current_user_id() !== $user_id ) {
+			wp_die( esc_html__( 'You can only confirm your own account.', 'sigil-2fa' ), '', array( 'response' => 403 ) );
+		}
+
+		// A password is compared, never stored or echoed, and sanitising it
+		// would change what is compared. The assertion is JSON the passkey
+		// provider decodes and verifies field by field.
+		// phpcs:disable WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$input = array(
+			'password'          => isset( $_POST['sigil_step_up_password'] ) ? (string) wp_unslash( $_POST['sigil_step_up_password'] ) : '',
+			'code'              => isset( $_POST['sigil_step_up_code'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['sigil_step_up_code'] ) ) : '',
+			'passkey_assertion' => isset( $_POST['passkey_assertion'] ) ? (string) wp_unslash( $_POST['passkey_assertion'] ) : '',
+		);
+		// phpcs:enable WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+
+		// Back to the tab they were on.
+		$method = isset( $_POST['method'] ) ? sanitize_key( wp_unslash( (string) $_POST['method'] ) ) : '';
+
+		$result = Step_Up::prove( $user_id, $input );
+		if ( is_wp_error( $result ) ) {
+			$this->redirect_with_status( $user_id, 'error', $result->get_error_code(), $result->get_error_message(), $method );
+		}
+
+		$this->redirect_with_status( $user_id, 'success', 'confirmed', '', $method );
+	}
+
+	/**
+	 * Forgetting trusted devices only ever takes access away, so it needs no
+	 * confirmation, but it is the owner's own call: an administrator who wants
+	 * it done resets the account instead.
+	 */
+	public function handle_forget_devices_post(): void {
+		$user_id = isset( $_POST['user_id'] ) ? absint( wp_unslash( $_POST['user_id'] ) ) : 0;
+
+		check_admin_referer( 'sigil_forget_devices_' . $user_id );
+
+		if ( $user_id <= 0 || (int) get_current_user_id() !== $user_id ) {
+			wp_die( esc_html__( 'You can only forget the devices trusted on your own account.', 'sigil-2fa' ), '', array( 'response' => 403 ) );
+		}
+
+		Trusted_Devices::instance()->forget( $user_id );
+
+		$this->redirect_with_status( $user_id, 'success', 'devices_forgotten' );
 	}
 
 	/**
@@ -476,6 +573,11 @@ final class Enrolment {
 		$backup_provider = Providers::instance()->get( 'backup' );
 		$show_backup     = $backup_provider instanceof Providers\Backup_Codes
 			&& $this->backup_codes_pending_display( $user_id );
+
+		$needs_step_up = Step_Up::required( $user_id ) && ! Step_Up::satisfied( $user_id );
+		$step_up       = $needs_step_up ? Step_Up::factors( $user_id ) : array();
+		$own_account   = (int) get_current_user_id() === $user_id;
+		$trusted_count = $own_account ? Trusted_Devices::instance()->count_for( $user_id ) : 0;
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only query flag.
 		$active = isset( $_GET['method'] ) ? sanitize_key( wp_unslash( (string) $_GET['method'] ) ) : '';
