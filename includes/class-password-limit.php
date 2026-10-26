@@ -17,10 +17,14 @@ defined( 'ABSPATH' ) || exit;
  * A refusal looks the same whether the password was right or wrong, and
  * whether the account exists or not, so nothing is learned from it.
  *
- * The account bucket is keyed on what was typed, not on the account it names.
- * Keying on the account would let anyone check whether a username and an email
- * belong together by spending one and watching the other close. The cost is
- * that an account reachable by both gets the allowance twice.
+ * The account bucket is keyed on the account the typed name reaches, found
+ * the way core's own password check finds it. MySQL matches a login however
+ * it is cased, accented, padded or written in full-width letters, so keying
+ * on the text would give every spelling its own allowance. A login and an
+ * email are still counted apart: one bucket for both would let anyone check
+ * whether a username and an address belong together by spending one and
+ * watching the other close. The cost is that an account gets the allowance
+ * once under each.
  *
  * Only time ever reopens a bucket, so nobody can lock an account for good, and
  * a passkey sign-in sends no password and is never counted.
@@ -94,8 +98,8 @@ final class Password_Limit {
 	 * @return mixed
 	 */
 	public function limit( $user, $username = '', $password = '' ) {
-		$username = strtolower( trim( (string) $username ) );
-		if ( '' === (string) $password || '' === $username || ! self::enabled() ) {
+		$username = (string) $username;
+		if ( '' === (string) $password || '' === trim( $username ) || ! self::enabled() ) {
 			return $user;
 		}
 
@@ -162,12 +166,11 @@ final class Password_Limit {
 	 * @return array<string, int> What each cleared bucket held.
 	 */
 	public static function unlock( \WP_User $user, string $ip = '', bool $challenge = false ): array {
-		$buckets = array();
-		foreach ( array_unique( array( (string) $user->user_login, (string) $user->user_email ) ) as $login ) {
-			$login = strtolower( trim( $login ) );
-			if ( '' !== $login ) {
-				$buckets[ 'password: ' . $login ] = self::account_key( $login );
-			}
+		$buckets = array(
+			'password: ' . strtolower( (string) $user->user_login ) => self::key_for( 'l:' . strtolower( (string) $user->user_login ) ),
+		);
+		if ( '' !== (string) $user->user_email ) {
+			$buckets[ 'password: ' . strtolower( (string) $user->user_email ) ] = self::key_for( 'e:' . strtolower( (string) $user->user_email ) );
 		}
 
 		if ( '' !== $ip ) {
@@ -193,8 +196,52 @@ final class Password_Limit {
 		return $cleared;
 	}
 
-	private static function account_key( string $login ): string {
-		return 'pw:a:' . $login;
+	/**
+	 * The bucket a typed name counts against.
+	 *
+	 * A name that reaches an account by login counts against that account's
+	 * stored login, and one that reaches it by email against its stored email.
+	 * A name that reaches nobody is normalised, so spellings of a name that
+	 * does not exist behave like spellings of one that does.
+	 */
+	public static function account_key( string $typed ): string {
+		$login = sanitize_user( $typed );
+		$user  = '' === $login ? false : get_user_by( 'login', $login );
+		if ( $user instanceof \WP_User ) {
+			return self::key_for( 'l:' . strtolower( (string) $user->user_login ) );
+		}
+
+		if ( is_email( $typed ) ) {
+			$user = get_user_by( 'email', $typed );
+			if ( $user instanceof \WP_User ) {
+				return self::key_for( 'e:' . strtolower( (string) $user->user_email ) );
+			}
+		}
+
+		return self::key_for( 'n:' . self::normalise( $typed ) );
+	}
+
+	private static function normalise( string $typed ): string {
+		$name = sanitize_user( $typed );
+		if ( class_exists( 'Normalizer' ) ) {
+			$normalised = \Normalizer::normalize( $name, \Normalizer::FORM_KC );
+			$name       = is_string( $normalised ) ? $normalised : $name;
+		}
+		$name = function_exists( 'mb_strtolower' ) ? mb_strtolower( $name, 'UTF-8' ) : strtolower( $name );
+		// Default-ignorable code points: zero-width spaces and joiners, soft
+		// hyphens, variation selectors and the like.
+		$stripped = preg_replace( '/\p{Cf}|[\x{034F}\x{115F}\x{1160}\x{17B4}\x{17B5}\x{180B}-\x{180F}\x{3164}\x{FE00}-\x{FE0F}\x{FFA0}]/u', '', $name );
+		$name     = is_string( $stripped ) ? $stripped : $name;
+		$trimmed  = preg_replace( '/^[\s\x{00A0}]+|[\s\x{00A0}]+$/u', '', $name );
+
+		return is_string( $trimmed ) ? $trimmed : trim( $name );
+	}
+
+	/**
+	 * Hashed, so nothing typed can reach into another bucket's name.
+	 */
+	private static function key_for( string $identity ): string {
+		return 'pw:a:' . hash( 'sha256', $identity );
 	}
 
 	/**
@@ -211,7 +258,7 @@ final class Password_Limit {
 	}
 
 	private static function strike_key( string $account_key ): string {
-		return $account_key . ':strikes';
+		return 'pw:s:' . substr( $account_key, strlen( 'pw:a:' ) );
 	}
 
 	/**

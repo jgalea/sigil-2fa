@@ -54,7 +54,7 @@ class Test_Password_Limit extends WP_UnitTestCase {
 
 		$table = \Sigil\Rate_Limit::table();
 
-		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT expires FROM {$table} WHERE bucket = %s", hash( 'sha256', 'pw:a:' . strtolower( $login ) ) ) );
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT expires FROM {$table} WHERE bucket = %s", hash( 'sha256', \Sigil\Password_Limit::account_key( $login ) ) ) );
 	}
 
 	private static function age_out( string $login ): void {
@@ -63,7 +63,7 @@ class Test_Password_Limit extends WP_UnitTestCase {
 		$wpdb->update(
 			\Sigil\Rate_Limit::table(),
 			array( 'expires' => time() - 1 ),
-			array( 'bucket' => hash( 'sha256', 'pw:a:' . strtolower( $login ) ) )
+			array( 'bucket' => hash( 'sha256', \Sigil\Password_Limit::account_key( $login ) ) )
 		);
 	}
 
@@ -305,5 +305,78 @@ class Test_Password_Limit extends WP_UnitTestCase {
 		\Sigil\Password_Limit::unlock( $user );
 
 		$this->assertLimited( wp_authenticate( $other->user_login, self::PASS ) );
+	}
+
+	/**
+	 * MySQL's collation matches these to the stored login, and so does core's
+	 * password check, so each one is another way to guess at the same account.
+	 *
+	 * @return list<string>
+	 */
+	private static function spellings( string $login ): array {
+		return array(
+			strtoupper( $login ),
+			substr( $login, 0, 3 ) . "\u{200d}" . substr( $login, 3 ),
+			"\u{ff56}\u{ff41}\u{ff52}" . substr( $login, 3 ),
+			strtoupper( $login ) . "\u{00a0}",
+			'v' . "\u{00e1}" . substr( $login, 2 ),
+		);
+	}
+
+	public function test_every_spelling_of_a_login_counts_against_the_one_account(): void {
+		$user = self::factory()->user->create_and_get( array( 'user_login' => 'varuser', 'user_pass' => self::PASS ) );
+
+		foreach ( self::spellings( 'varuser' ) as $spelling ) {
+			$this->assertSame( (int) $user->ID, (int) get_user_by( 'login', sanitize_user( $spelling ) )->ID, 'the database resolves ' . wp_json_encode( $spelling ) );
+			wp_authenticate( $spelling, 'wrong-password' );
+		}
+
+		$this->assertLimited( wp_authenticate( $user->user_login, self::PASS ) );
+	}
+
+	public function test_a_locked_login_stays_locked_under_another_spelling(): void {
+		self::factory()->user->create( array( 'user_login' => 'varuser', 'user_pass' => self::PASS ) );
+		$this->fail_times( 'varuser', 5 );
+
+		foreach ( self::spellings( 'varuser' ) as $spelling ) {
+			$this->assertLimited( wp_authenticate( $spelling, self::PASS ) );
+		}
+	}
+
+	public function test_spellings_of_an_email_share_the_emails_bucket(): void {
+		$user = self::factory()->user->create_and_get( array( 'user_email' => 'mixed@example.com', 'user_pass' => self::PASS ) );
+		$this->fail_times( 'MIXED@example.com', 3 );
+		$this->fail_times( 'Mixed@Example.COM', 2 );
+
+		$this->assertLimited( wp_authenticate( 'mixed@example.com', self::PASS ) );
+		$this->assertInstanceOf( WP_User::class, wp_authenticate( $user->user_login, self::PASS ), 'the login keeps its own allowance' );
+	}
+
+	public function test_a_name_nobody_has_is_counted_under_its_normalised_form(): void {
+		$this->fail_times( 'ghost', 3 );
+		$this->fail_times( "GHO\u{200b}ST", 2 );
+
+		$this->assertLimited( wp_authenticate( 'ghost', 'wrong-password' ) );
+	}
+
+	public function test_a_login_ending_in_strikes_never_touches_another_accounts_lockouts(): void {
+		$user = self::factory()->user->create_and_get( array( 'user_login' => 'x', 'user_pass' => self::PASS ) );
+		$this->fail_times( 'x:strikes', 5 );
+
+		$this->fail_times( 'x', 6 );
+
+		$this->assertEqualsWithDelta( 15 * MINUTE_IN_SECONDS, self::account_expiry( 'x' ) - time(), 5, 'the first lockout is the shortest' );
+	}
+
+	public function test_unlock_clears_what_any_spelling_counted(): void {
+		$user = self::factory()->user->create_and_get( array( 'user_login' => 'varuser', 'user_pass' => self::PASS ) );
+		foreach ( self::spellings( 'varuser' ) as $spelling ) {
+			wp_authenticate( $spelling, 'wrong-password' );
+		}
+		wp_authenticate( 'varuser', 'wrong-password' );
+
+		\Sigil\Password_Limit::unlock( $user );
+
+		$this->assertInstanceOf( WP_User::class, wp_authenticate( 'varuser', self::PASS ) );
 	}
 }
