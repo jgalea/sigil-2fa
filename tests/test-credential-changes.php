@@ -228,4 +228,29 @@ class Test_Credential_Changes extends WP_UnitTestCase {
 
 		$this->assertFalse( $errors->has_errors() );
 	}
+
+	// An administrator wiping their own methods is the account owner removing
+	// every factor at once, so it needs the same proof as removing one.
+	public function test_an_administrators_own_reset_needs_a_fresh_proof(): void {
+		$admin = (int) self::factory()->user->create(
+			array(
+				'role'      => 'administrator',
+				'user_pass' => self::PASS,
+			)
+		);
+		if ( is_multisite() ) {
+			grant_super_admin( $admin );
+		}
+		\Sigil\Store::set_method( $admin, 'email', array( 'enrolled_at' => time() ) );
+		$this->sign_in( $admin, self::STALE );
+
+		$refused = rest_do_request( new WP_REST_Request( 'DELETE', '/sigil/v1/users/' . $admin . '/methods' ) );
+		$this->assertSame( 403, $refused->get_status() );
+		$this->assertTrue( \Sigil\Store::has_any( $admin ) );
+
+		$this->assertTrue( Step_Up::prove( $admin, array( 'password' => self::PASS ) ) );
+		$allowed = rest_do_request( new WP_REST_Request( 'DELETE', '/sigil/v1/users/' . $admin . '/methods' ) );
+		$this->assertSame( 200, $allowed->get_status() );
+		$this->assertFalse( \Sigil\Store::has_any( $admin ) );
+	}
 }

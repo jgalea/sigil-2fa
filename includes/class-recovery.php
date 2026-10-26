@@ -36,6 +36,11 @@ final class Recovery {
 	 * @return true|\WP_Error
 	 */
 	public static function reset_user( int $user_id, int $actor_id ) {
+		// Wiping your own methods is removing every factor at once.
+		if ( $actor_id > 0 && $actor_id === $user_id && ! Step_Up::allows( $user_id ) ) {
+			return Step_Up::error();
+		}
+
 		if ( $actor_id <= 0
 			|| ! user_can( $actor_id, 'edit_users' )
 			|| ! user_can( $actor_id, 'edit_user', $user_id ) ) {
