@@ -22,7 +22,6 @@
 .wp-env.json
 phpunit.xml.dist
 phpunit-multisite.xml.dist
-phpunit-pro.xml.dist
 playwright.config.ts
 package.json
 package-lock.json

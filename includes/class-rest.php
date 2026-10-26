@@ -149,6 +149,40 @@ final class REST {
 				),
 			)
 		);
+
+		// No session and no token: the passkey is the whole credential, and the
+		// account comes from whichever stored passkey the signature verifies
+		// against. GET mints a single-use challenge, POST spends it.
+		register_rest_route(
+			self::NAMESPACE_V1,
+			'/passwordless',
+			array(
+				array(
+					'methods'             => \WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_passwordless' ),
+					'permission_callback' => '__return_true',
+				),
+				array(
+					'methods'             => \WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'complete_passwordless' ),
+					'permission_callback' => '__return_true',
+					'args'                => array(
+						'ceremony'  => array(
+							'type'     => 'string',
+							'required' => true,
+						),
+						'assertion' => array(
+							'type'     => 'object',
+							'required' => true,
+						),
+						'remember'  => array(
+							'type'    => 'boolean',
+							'default' => false,
+						),
+					),
+				),
+			)
+		);
 	}
 
 	public function can_manage(): bool {
@@ -261,7 +295,7 @@ final class REST {
 	}
 
 	/**
-	 * @return \WP_REST_Response
+	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function update_policy( \WP_REST_Request $request ) {
 		$body  = $request->get_json_params();
@@ -270,6 +304,9 @@ final class REST {
 
 		if ( isset( $body['enabled'] ) ) {
 			$patch['enabled'] = (bool) $body['enabled'];
+		}
+		if ( isset( $body['passwordless'] ) ) {
+			$patch['passwordless'] = (bool) $body['passwordless'];
 		}
 		if ( isset( $body['grace_days'] ) ) {
 			$patch['grace_days'] = max( 0, (int) $body['grace_days'] );
@@ -288,6 +325,10 @@ final class REST {
 				}
 				$patch[ $map ] = $clean;
 			}
+		}
+
+		if ( Policy::would_lock_out( get_current_user_id(), $patch ) ) {
+			return new \WP_Error( 'sigil_lockout', Policy::lockout_message(), array( 'status' => 409 ) );
 		}
 
 		Policy::update( $patch );
@@ -395,6 +436,58 @@ final class REST {
 	}
 
 	/**
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function get_passwordless() {
+		$provider = Providers::instance()->get( 'passkey' );
+		$minted   = Passwordless::enabled() && $provider instanceof Providers\Passkey ? $provider->discoverable_options() : null;
+		if ( null === $minted ) {
+			return new \WP_Error(
+				'sigil_passwordless_unavailable',
+				__( 'Signing in with a passkey alone is not available on this site.', 'sigil-2fa' ),
+				array( 'status' => 404 )
+			);
+		}
+
+		return rest_ensure_response(
+			array(
+				'ceremony' => $minted['ceremony'],
+				'options'  => self::to_array( $minted['options'] ),
+			)
+		);
+	}
+
+	/**
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function complete_passwordless( \WP_REST_Request $request ) {
+		$assertion = $request['assertion'];
+		$user      = Passwordless::instance()->sign_on(
+			(string) $request['ceremony'],
+			is_array( $assertion ) ? $assertion : array(),
+			(bool) $request['remember']
+		);
+
+		if ( is_wp_error( $user ) ) {
+			return new \WP_Error(
+				$user->get_error_code(),
+				$user->get_error_message(),
+				array( 'status' => 'sigil_rate_limited' === $user->get_error_code() ? 429 : 401 )
+			);
+		}
+
+		wp_set_current_user( (int) $user->ID );
+
+		return rest_ensure_response(
+			array(
+				'success'     => true,
+				'user_id'     => (int) $user->ID,
+				'redirect_to' => admin_url(),
+			)
+		);
+	}
+
+	/**
 	 * @return array<string, mixed>|null
 	 */
 	private function passkey_options( int $user_id ): ?array {
@@ -404,10 +497,17 @@ final class REST {
 		}
 
 		$options = $provider->auth_options( $user_id );
-		if ( null === $options ) {
-			return null;
-		}
 
+		return null === $options ? null : self::to_array( $options );
+	}
+
+	/**
+	 * WebAuthn options hold the library's binary wrappers, which serialise to
+	 * base64url. Round-tripping through JSON hands REST plain arrays.
+	 *
+	 * @return array<string, mixed>|null
+	 */
+	private static function to_array( \stdClass $options ): ?array {
 		$encoded = wp_json_encode( $options );
 		$decoded = is_string( $encoded ) ? json_decode( $encoded, true ) : null;
 

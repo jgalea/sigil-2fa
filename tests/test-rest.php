@@ -150,7 +150,9 @@ class Test_REST extends WP_UnitTestCase {
 	}
 
 	public function test_policy_can_be_updated(): void {
-		wp_set_current_user( $this->user_manager() );
+		$admin = $this->user_manager();
+		\Sigil\Store::set_method( $admin, 'totp', array( 'secret' => 'x' ) );
+		wp_set_current_user( $admin );
 
 		$response = $this->request(
 			'POST',

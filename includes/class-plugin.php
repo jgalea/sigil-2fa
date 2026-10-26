@@ -37,6 +37,8 @@ final class Plugin {
 		Rate_Limit::schedule_purge();
 		require_once SIGIL_DIR . 'includes/class-challenge.php';
 		Challenge::instance();
+		require_once SIGIL_DIR . 'includes/class-passwordless.php';
+		Passwordless::instance();
 
 		require_once SIGIL_DIR . 'includes/class-recovery.php';
 		require_once SIGIL_DIR . 'includes/class-cli.php';
@@ -46,10 +48,12 @@ final class Plugin {
 		require_once SIGIL_DIR . 'includes/class-settings.php';
 		require_once SIGIL_DIR . 'includes/class-users-column.php';
 		require_once SIGIL_DIR . 'includes/class-app-passwords.php';
+		require_once SIGIL_DIR . 'includes/class-login-guard.php';
 
 		Settings::instance();
 		Users_Column::instance();
 		App_Passwords::instance();
+		Login_Guard::instance();
 
 		require_once SIGIL_DIR . 'includes/class-enrolment.php';
 		Enrolment::instance();
@@ -72,6 +76,18 @@ final class Plugin {
 		require_once SIGIL_DIR . 'includes/class-wordfence-import.php';
 		require_once SIGIL_DIR . 'includes/class-import-migration.php';
 		Import_Migration::instance();
+
+		require_once SIGIL_DIR . 'includes/class-trusted-devices.php';
+		require_once SIGIL_DIR . 'includes/class-zero-setup.php';
+		require_once SIGIL_DIR . 'includes/class-wizard.php';
+		require_once SIGIL_DIR . 'includes/class-woocommerce.php';
+		Trusted_Devices::instance();
+		Zero_Setup::instance();
+		Wizard::instance();
+
+		// The account tab can only be added where there is an account page to put
+		// it on, which cannot be known until every plugin has loaded.
+		WooCommerce::boot();
 
 		// Pro add-on, when present. The free build strips pro/ entirely, so this
 		// include only fires in the Pro distribution.

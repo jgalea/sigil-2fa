@@ -164,9 +164,9 @@ final class Backup_Codes implements Provider {
 	}
 
 	public function render_challenge( int $user_id ): void {
-		echo '<p>' . esc_html__( 'Enter one of your backup codes.', 'sigil-2fa' ) . '</p>';
 		echo '<p><label for="sigil-backup-code">' . esc_html__( 'Backup code', 'sigil-2fa' ) . '</label> ';
-		echo '<input type="text" name="code" id="sigil-backup-code" autocomplete="one-time-code" inputmode="text" autocapitalize="characters" spellcheck="false" required /></p>';
+		echo '<input type="text" name="code" id="sigil-backup-code" autocomplete="one-time-code" inputmode="text" autocapitalize="characters" pattern="[A-Za-z0-9\s\-]{8,16}" maxlength="16" spellcheck="false" aria-describedby="sigil-backup-hint" required autofocus />';
+		echo '<span id="sigil-backup-hint" class="sigil-challenge__hint">' . esc_html__( 'Enter one of your backup codes.', 'sigil-2fa' ) . '</span></p>';
 	}
 
 	/**

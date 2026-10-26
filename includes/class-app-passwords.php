@@ -35,6 +35,10 @@ final class App_Passwords {
 		}
 	}
 
+	public function used_application_password( int $user_id ): bool {
+		return isset( $this->app_password_users[ $user_id ] );
+	}
+
 	/**
 	 * Refuse the account password on XML-RPC and REST for anyone with a second
 	 * factor.
@@ -51,7 +55,7 @@ final class App_Passwords {
 			return $user;
 		}
 
-		if ( isset( $this->app_password_users[ (int) $user->ID ] ) ) {
+		if ( $this->used_application_password( (int) $user->ID ) ) {
 			return $user;
 		}
 

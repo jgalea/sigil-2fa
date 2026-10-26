@@ -26,8 +26,9 @@ function sigil_uninstall_site(): void {
 		delete_option( $option );
 	}
 
-	// Anything the add-on stored. Swept by prefix rather than by a list, so the
-	// free build does not have to know what the paid one keeps.
+	// Anything stored under the add-on's prefix: its own settings, and the ones
+	// that moved into this plugin and kept their names. Swept by prefix rather
+	// than by a list, so the free build does not have to know what the paid one keeps.
 	$wpdb->query( "DELETE FROM {$wpdb->options} WHERE option_name LIKE 'sigil\_pro\_%'" );
 
 	// Rate-limit, challenge, email and backup-display transients all carry the

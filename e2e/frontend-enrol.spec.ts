@@ -97,7 +97,7 @@ test('the front-end page is styled rather than raw markup', async ({ page }) => 
 	await login(page);
 	await page.goto('/two-factor/');
 
-	const stylesheet = page.locator('link[href*="sigil-2fa/assets/css/frontend.css"]');
+	const stylesheet = page.locator('link[href*="/assets/css/frontend.css"][href*="sigil-2fa"]');
 	await expect(stylesheet).toHaveCount(1);
 
 	// The shared markup carries admin classes; on the front end they only mean

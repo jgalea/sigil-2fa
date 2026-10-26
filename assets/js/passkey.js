@@ -108,7 +108,7 @@
 		});
 	}
 
-	function register(root) {
+	function register(root, replace) {
 		if (!isSupported()) {
 			setStatus(root, i18n('unsupported'));
 			return;
@@ -116,7 +116,7 @@
 
 		setStatus(root, i18n('registering'));
 
-		postForm('sigil_passkey_register_options', {})
+		postForm('sigil_passkey_register_options', { replace: replace })
 			.then(function (json) {
 				if (!json || !json.success) {
 					throw new Error((json && json.data && json.data.message) || i18n('failed'));
@@ -136,11 +136,19 @@
 				if (typeof cred.response.getTransports === 'function') {
 					transports = cred.response.getTransports() || [];
 				}
+				// credProps says whether the device kept a resident key, which is
+				// what lets the passkey start a sign-in without a password.
+				var props = typeof cred.getClientExtensionResults === 'function'
+					? (cred.getClientExtensionResults() || {}).credProps
+					: null;
+				var discoverable = props && typeof props.rk === 'boolean' ? (props.rk ? '1' : '0') : '';
 				return postForm('sigil_passkey_register', {
 					clientDataJSON: bufferToBase64Url(cred.response.clientDataJSON),
 					attestationObject: bufferToBase64Url(cred.response.attestationObject),
 					label: labelInput ? labelInput.value : '',
-					transports: transports
+					transports: transports,
+					discoverable: discoverable,
+					replace: replace
 				});
 			})
 			.then(function (json) {
@@ -211,7 +219,7 @@
 		var regBtn = target.closest('.sigil-passkey-register');
 		if (regBtn) {
 			var regRoot = regBtn.closest('.sigil-passkey-enrol') || document;
-			register(regRoot);
+			register(regRoot, regBtn.getAttribute('data-replace') || '');
 			return;
 		}
 		var authBtn = target.closest('.sigil-passkey-authenticate');
@@ -224,4 +232,10 @@
 	}
 
 	document.addEventListener('click', onClick);
+
+	window.sigilWebAuthn = {
+		isSupported: isSupported,
+		decodeOptions: decodeOptions,
+		bufferToBase64Url: bufferToBase64Url
+	};
 })();

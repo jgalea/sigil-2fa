@@ -9,6 +9,9 @@ defined( 'ABSPATH' ) || exit;
 final class Credentials {
 
 	/**
+	 * @param string    $user_handle  The handle the authenticator was given, empty when it is not known
+	 *                                (passkeys registered before it was stored, or brought in by an importer).
+	 * @param bool|null $discoverable Whether the browser reported a resident key, null when it did not say.
 	 * @return int Inserted row ID, or 0 on failure.
 	 */
 	public static function add(
@@ -17,7 +20,9 @@ final class Credentials {
 		string $public_key,
 		int $sign_count,
 		string $label,
-		string $transports
+		string $transports,
+		string $user_handle = '',
+		?bool $discoverable = null
 	): int {
 		global $wpdb;
 
@@ -25,22 +30,26 @@ final class Credentials {
 			return 0;
 		}
 
-		$now = current_time( 'mysql', true );
+		$row = [
+			'user_id'       => $user_id,
+			'credential_id' => $credential_id,
+			'public_key'    => $public_key,
+			'sign_count'    => max( 0, $sign_count ),
+			'transports'    => sanitize_text_field( $transports ),
+			'label'         => sanitize_text_field( $label ),
+			'user_handle'   => $user_handle,
+			'created_at'    => current_time( 'mysql', true ),
+		];
+		$formats = [ '%d', '%s', '%s', '%d', '%s', '%s', '%s', '%s' ];
+
+		// wpdb has no NULL format, so an unknown answer is left to the column default.
+		if ( null !== $discoverable ) {
+			$row['discoverable'] = $discoverable ? 1 : 0;
+			$formats[]           = '%d';
+		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
-		$ok = $wpdb->insert(
-			Schema::table(),
-			[
-				'user_id'       => $user_id,
-				'credential_id' => $credential_id,
-				'public_key'    => $public_key,
-				'sign_count'    => max( 0, $sign_count ),
-				'transports'    => sanitize_text_field( $transports ),
-				'label'         => sanitize_text_field( $label ),
-				'created_at'    => $now,
-			],
-			[ '%d', '%s', '%s', '%d', '%s', '%s', '%s' ]
-		);
+		$ok = $wpdb->insert( Schema::table(), $row, $formats );
 
 		if ( false === $ok ) {
 			return 0;
@@ -58,6 +67,8 @@ final class Credentials {
 	 *   sign_count: int|string,
 	 *   transports: string,
 	 *   label: string,
+	 *   user_handle: string,
+	 *   discoverable: int|string|null,
 	 *   created_at: string,
 	 *   last_used_at: string|null
 	 * }>
@@ -128,6 +139,18 @@ final class Credentials {
 			[ '%d', '%s' ],
 			[ '%d' ]
 		);
+	}
+
+	/**
+	 * Record that a credential has signed in on its own, which only a resident
+	 * key can do. Passkeys registered before the browser was asked are learned
+	 * this way rather than nagged about.
+	 */
+	public static function mark_discoverable( int $id ): void {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->update( Schema::table(), [ 'discoverable' => 1 ], [ 'id' => $id ], [ '%d' ], [ '%d' ] );
 	}
 
 	public static function delete( int $id, int $user_id ): bool {

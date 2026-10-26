@@ -90,6 +90,7 @@ foreach ( $challenge_providers as $provider ) {
 		<input type="hidden" name="sigil_remember" value="<?php echo $challenge_remember ? '1' : ''; ?>" />
 		<input type="hidden" name="sigil_redirect_to" value="<?php echo esc_attr( $challenge_redirect ); ?>" />
 		<?php wp_nonce_field( 'sigil_challenge', 'sigil_nonce' ); ?>
+		<input type="text" name="sigil_username" class="sigil-challenge__username" value="<?php echo esc_attr( $challenge_user->user_login ); ?>" autocomplete="username" readonly tabindex="-1" aria-hidden="true" />
 
 		<div class="sigil-challenge__provider">
 			<?php $challenge_active->render_challenge( (int) $challenge_user->ID ); ?>
@@ -117,7 +118,7 @@ foreach ( $challenge_providers as $provider ) {
 	</form>
 
 	<?php if ( array() !== $alternatives ) : ?>
-		<form method="post" action="<?php echo esc_url( $action_url ); ?>" class="sigil-challenge__methods">
+		<form method="post" action="<?php echo esc_url( $action_url ); ?>" class="sigil-challenge__methods" aria-label="<?php echo esc_attr( $sigil_say( 'methods', __( 'Verify another way:', 'sigil-2fa' ) ) ); ?>">
 			<input type="hidden" name="sigil_token" value="<?php echo esc_attr( $challenge_token ); ?>" />
 			<input type="hidden" name="sigil_remember" value="<?php echo $challenge_remember ? '1' : ''; ?>" />
 			<input type="hidden" name="sigil_redirect_to" value="<?php echo esc_attr( $challenge_redirect ); ?>" />

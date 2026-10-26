@@ -2,6 +2,7 @@
   "name": "sigil-2fa-dev",
   "private": true,
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@playwright/test": "^1.62.0",
     "jsqr": "^1.4.0",
     "qrcode-generator": "^2.0.4"

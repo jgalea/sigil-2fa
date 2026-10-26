@@ -1,0 +1,303 @@
+<?php
+
+declare( strict_types=1 );
+
+/**
+ * Signing in with a passkey alone, end to end through wp_signon().
+ *
+ * The assertions are signed here with a real P-256 key, the way an
+ * authenticator signs them, so the WebAuthn library verifies them for real.
+ */
+class Test_Passwordless extends WP_UnitTestCase {
+
+	use Clears_Attempts;
+
+	private const UP_UV = 0x05;
+	private const UP    = 0x01;
+
+	/** @var \OpenSSLAsymmetricKey|resource */
+	private $key;
+
+	private string $credential_id;
+
+	private int $user_id;
+
+	public function set_up(): void {
+		if ( PHP_VERSION_ID < 80000 ) {
+			$this->markTestSkipped( 'Passkeys need PHP 8.0.' );
+		}
+
+		parent::set_up();
+
+		Sigil\Policy::update( array( 'passwordless' => true ) );
+
+		$this->user_id       = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		$this->key           = openssl_pkey_new(
+			array(
+				'private_key_type' => OPENSSL_KEYTYPE_EC,
+				'curve_name'       => 'prime256v1',
+			)
+		);
+		$this->credential_id = random_bytes( 32 );
+
+		$pem = openssl_pkey_get_details( $this->key )['key'];
+		Sigil\Credentials::add( $this->user_id, $this->credential_id, $pem, 0, 'Test key', 'internal', (string) $this->user_id, true );
+		Sigil\Store::set_method( $this->user_id, 'passkey', array( 'enrolled_at' => time() ) );
+	}
+
+	private function passkey(): Sigil\Providers\Passkey {
+		$provider = Sigil\Providers::instance()->get( 'passkey' );
+		$this->assertInstanceOf( Sigil\Providers\Passkey::class, $provider );
+
+		return $provider;
+	}
+
+	private static function b64url( string $raw ): string {
+		return rtrim( strtr( base64_encode( $raw ), '+/', '-_' ), '=' );
+	}
+
+	/**
+	 * @return array{ceremony: string, assertion: array<string, string>}
+	 */
+	private function signed( int $flags = self::UP_UV, int $counter = 0, ?string $handle = null ): array {
+		$minted = $this->passkey()->discoverable_options();
+		$this->assertNotNull( $minted );
+
+		$challenge = $minted['options']->publicKey->challenge->getBinaryString();
+		$rp_id     = Sigil\Providers\Passkey::rp_id();
+
+		$client_data = (string) wp_json_encode(
+			array(
+				'type'      => 'webauthn.get',
+				'challenge' => self::b64url( $challenge ),
+				'origin'    => 'https://' . $rp_id,
+			)
+		);
+		$auth_data   = hash( 'sha256', $rp_id, true ) . chr( $flags ) . pack( 'N', $counter );
+
+		openssl_sign( $auth_data . hash( 'sha256', $client_data, true ), $signature, $this->key, OPENSSL_ALGO_SHA256 );
+
+		return array(
+			'ceremony'  => $minted['ceremony'],
+			'assertion' => array(
+				'id'                => self::b64url( $this->credential_id ),
+				'clientDataJSON'    => self::b64url( $client_data ),
+				'authenticatorData' => self::b64url( $auth_data ),
+				'signature'         => self::b64url( $signature ),
+				'userHandle'        => self::b64url( $handle ?? (string) $this->user_id ),
+			),
+		);
+	}
+
+	/**
+	 * @param array{ceremony: string, assertion: array<string, string>} $signed
+	 * @return WP_User|WP_Error
+	 */
+	private function sign_on( array $signed ) {
+		return Sigil\Passwordless::instance()->sign_on( $signed['ceremony'], $signed['assertion'], false );
+	}
+
+	public function test_a_verified_passkey_signs_in_without_a_password_or_a_challenge(): void {
+		$logins = did_action( 'wp_login' );
+		$passed = did_action( 'sigil_challenge_passed' );
+
+		// Challenge::on_login exits to draw the challenge screen, so reaching
+		// the assertions at all means the sign-in was not sent there.
+		$user = $this->sign_on( $this->signed() );
+
+		$this->assertInstanceOf( WP_User::class, $user );
+		$this->assertSame( $this->user_id, (int) $user->ID );
+		$this->assertSame( $logins + 1, did_action( 'wp_login' ), 'wp_login fires as for any sign-in' );
+		$this->assertSame( $passed + 1, did_action( 'sigil_challenge_passed' ), 'and it counts as passing the second factor' );
+		$this->assertTrue( (bool) apply_filters( 'sigil_skip_challenge', false, $user ) );
+	}
+
+	public function test_the_skip_covers_only_the_account_the_passkey_signed_in(): void {
+		$this->sign_on( $this->signed() );
+
+		$other = self::factory()->user->create_and_get();
+		$this->assertFalse( (bool) apply_filters( 'sigil_skip_challenge', false, $other ) );
+	}
+
+	public function test_an_assertion_without_user_verification_is_refused(): void {
+		$failed = did_action( 'wp_login_failed' );
+
+		$result = $this->sign_on( $this->signed( self::UP ) );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sigil_passkey_failed', $result->get_error_code() );
+		$this->assertSame( $failed + 1, did_action( 'wp_login_failed' ), 'a refusal reaches wp_login_failed' );
+	}
+
+	public function test_a_ceremony_cannot_be_spent_twice(): void {
+		$signed = $this->signed();
+
+		$this->assertInstanceOf( WP_User::class, $this->sign_on( $signed ) );
+		$this->assertWPError( $this->sign_on( $signed ) );
+	}
+
+	public function test_a_user_handle_naming_someone_else_is_refused(): void {
+		$other = (string) self::factory()->user->create();
+
+		$this->assertWPError( $this->sign_on( $this->signed( self::UP_UV, 0, $other ) ) );
+	}
+
+	public function test_a_counter_that_goes_backwards_is_refused(): void {
+		$this->assertInstanceOf( WP_User::class, $this->sign_on( $this->signed( self::UP_UV, 10 ) ) );
+		$this->assertWPError( $this->sign_on( $this->signed( self::UP_UV, 5 ) ) );
+	}
+
+	public function test_a_passkey_whose_method_was_removed_does_not_sign_in(): void {
+		Sigil\Store::remove_method( $this->user_id, 'passkey' );
+
+		$this->assertWPError( $this->sign_on( $this->signed() ) );
+	}
+
+	public function test_an_account_locked_by_failed_attempts_stays_locked(): void {
+		for ( $i = 0; $i < Sigil\Rate_Limit::max_attempts(); $i++ ) {
+			Sigil\Rate_Limit::reserve( 'u:' . $this->user_id );
+		}
+
+		$result = $this->sign_on( $this->signed() );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sigil_rate_limited', $result->get_error_code() );
+	}
+
+	public function test_failures_count_against_the_address(): void {
+		$previous               = $_SERVER['REMOTE_ADDR'] ?? null;
+		$_SERVER['REMOTE_ADDR'] = '203.0.113.30';
+
+		$this->sign_on( $this->signed( self::UP ) );
+		$count = Sigil\Rate_Limit::count( Sigil\Challenge::ip_rate_key() );
+
+		$_SERVER['REMOTE_ADDR'] = $previous;
+
+		$this->assertSame( 1, $count );
+	}
+
+	public function test_switched_off_the_assertion_is_ignored(): void {
+		Sigil\Policy::update( array( 'passwordless' => false ) );
+
+		$result = $this->sign_on( $this->signed() );
+
+		$this->assertWPError( $result );
+		$this->assertContains( 'empty_username', $result->get_error_codes() );
+		$this->assertFalse( Sigil\Passwordless::enabled() );
+	}
+
+	public function test_off_where_passkeys_are_unavailable(): void {
+		$drop = static function ( $providers ) {
+			unset( $providers['passkey'] );
+			return $providers;
+		};
+		add_filter( 'sigil_providers', $drop );
+
+		$this->assertFalse( Sigil\Passwordless::enabled() );
+
+		remove_filter( 'sigil_providers', $drop );
+	}
+
+	public function test_a_typed_password_is_left_to_the_password_flow(): void {
+		$_POST['sigil_passwordless_ceremony']  = 'x';
+		$_POST['sigil_passwordless_assertion'] = '{}';
+
+		$error = new WP_Error( 'incorrect_password', 'no' );
+		$this->assertSame( $error, Sigil\Passwordless::instance()->authenticate( $error, 'admin', 'typed' ) );
+
+		unset( $_POST['sigil_passwordless_ceremony'], $_POST['sigil_passwordless_assertion'] );
+	}
+
+	public function test_another_filters_refusal_stands(): void {
+		$veto = static function () {
+			return new WP_Error( 'locked_out', 'Locked out.' );
+		};
+		add_filter( 'authenticate', $veto, 30 );
+
+		$result = $this->sign_on( $this->signed() );
+
+		remove_filter( 'authenticate', $veto, 30 );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'locked_out', $result->get_error_code() );
+	}
+
+	public function test_signing_in_alone_marks_an_old_passkey_discoverable(): void {
+		global $wpdb;
+		$wpdb->update( Sigil\Schema::table(), array( 'discoverable' => 0 ), array( 'user_id' => $this->user_id ) );
+
+		$this->sign_on( $this->signed() );
+
+		$row = Sigil\Credentials::for_user( $this->user_id )[0];
+		$this->assertSame( 1, (int) $row->discoverable );
+	}
+
+	public function test_the_options_ask_for_any_passkey_with_user_verification(): void {
+		$minted  = $this->passkey()->discoverable_options();
+		$options = $minted['options']->publicKey;
+
+		$this->assertSame( 'required', $options->userVerification );
+		$this->assertFalse( property_exists( $options, 'allowCredentials' ) );
+		$this->assertSame( Sigil\Providers\Passkey::rp_id(), $options->rpId );
+	}
+
+	public function test_the_setting_defaults_to_on(): void {
+		Sigil\Network::delete_option( Sigil\Policy::OPTION_KEY );
+
+		$this->assertTrue( Sigil\Policy::get()['passwordless'] );
+	}
+
+	public function test_a_passkey_with_no_recorded_handle_still_signs_in(): void {
+		global $wpdb;
+		$wpdb->update( Sigil\Schema::table(), array( 'user_handle' => '' ), array( 'user_id' => $this->user_id ) );
+
+		// An imported passkey hands back the source plugin's handle.
+		$this->assertInstanceOf( WP_User::class, $this->sign_on( $this->signed( self::UP_UV, 0, random_bytes( 16 ) ) ) );
+	}
+
+	private function rest( string $method, array $body = array() ): WP_REST_Response {
+		global $wp_rest_server;
+		$wp_rest_server = new WP_REST_Server();
+		do_action( 'rest_api_init' );
+
+		$request = new WP_REST_Request( $method, '/sigil/v1/passwordless' );
+		foreach ( $body as $key => $value ) {
+			$request->set_param( $key, $value );
+		}
+
+		$response = $wp_rest_server->dispatch( $request );
+		$wp_rest_server = null;
+
+		return $response;
+	}
+
+	public function test_rest_hands_out_a_ceremony(): void {
+		$data = $this->rest( 'GET' )->get_data();
+
+		$this->assertMatchesRegularExpression( '/^[a-f0-9]{64}$/', $data['ceremony'] );
+		$this->assertSame( 'required', $data['options']['publicKey']['userVerification'] );
+		$this->assertIsString( $data['options']['publicKey']['challenge'] );
+	}
+
+	public function test_rest_signs_in_with_a_passkey(): void {
+		$signed   = $this->signed();
+		$response = $this->rest( 'POST', $signed );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( $this->user_id, $response->get_data()['user_id'] );
+		$this->assertSame( $this->user_id, get_current_user_id() );
+	}
+
+	public function test_rest_refuses_a_bad_assertion(): void {
+		$response = $this->rest( 'POST', $this->signed( self::UP ) );
+
+		$this->assertSame( 401, $response->get_status() );
+		$this->assertSame( 0, get_current_user_id() );
+	}
+
+	public function test_rest_is_closed_when_switched_off(): void {
+		Sigil\Policy::update( array( 'passwordless' => false ) );
+
+		$this->assertSame( 404, $this->rest( 'GET' )->get_status() );
+	}
+}

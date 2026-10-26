@@ -47,6 +47,22 @@
 	letter-spacing: 0.1em;
 }
 
+#login .sigil-challenge__username {
+	position: absolute;
+	left: -9999px;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
+}
+
+#login .sigil-challenge__hint {
+	display: block;
+	margin-top: 4px;
+	font-size: 13px;
+	line-height: 1.5;
+	color: #50575e;
+}
+
 #login .sigil-challenge__submit {
 	margin: 20px 0 0;
 	padding: 0;
@@ -95,7 +111,7 @@
 #login .sigil-challenge__method {
 	display: inline-block;
 	margin: 0 14px 4px 0;
-	padding: 0;
+	padding: 6px 0;
 	font-size: 13px;
 	line-height: 1.6;
 	color: #2271b1;
@@ -110,7 +126,37 @@
 	color: #135e96;
 }
 
+#login .sigil-challenge__method:focus-visible {
+	outline: 2px solid #2271b1;
+	outline-offset: 2px;
+}
+
 .sigil-challenge__cancel {
 	margin: 16px 0 0;
 	font-size: 13px;
+}
+
+#login .sigil-passwordless {
+	clear: both;
+	padding-top: 16px;
+}
+
+#login .sigil-passwordless__or {
+	margin: 0 0 12px;
+	color: #50575e;
+	text-align: center;
+}
+
+#login .sigil-passwordless__button {
+	display: block;
+	width: 100%;
+}
+
+#login .sigil-passwordless__status:empty {
+	display: none;
+}
+
+#login .sigil-passwordless__status {
+	margin: 12px 0 0;
+	color: #50575e;
 }

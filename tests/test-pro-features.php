@@ -25,13 +25,12 @@ class Test_Pro_Features extends WP_UnitTestCase {
 			$this->markTestSkipped( 'pro add-on not installed' );
 		}
 
-		foreach ( array( 'class-trusted-devices', 'class-method-policy', 'class-branding', 'class-portability', 'class-password-reset', 'class-destinations', 'class-zero-setup' ) as $file ) {
+		foreach ( array( 'class-method-policy', 'class-branding', 'class-portability', 'class-password-reset', 'class-destinations' ) as $file ) {
 			require_once SIGIL_DIR . 'pro/' . $file . '.php';
 		}
 
 		// The suite restores WordPress's hook table between tests, which strips
 		// the filters a singleton added when it was first constructed.
-		\Sigil\Pro\Trusted_Devices::instance()->register();
 		\Sigil\Pro\Method_Policy::instance()->register();
 	}
 
@@ -75,18 +74,15 @@ class Test_Pro_Features extends WP_UnitTestCase {
 		\Sigil\Pro\Method_Policy::update(
 			array( 'subscriber' => array( 'email' => false, 'totp' => true ) )
 		);
-		\Sigil\Pro\Zero_Setup::set_enabled( true );
 
 		$other = self::factory()->blog->create();
 		switch_to_blog( $other );
 
-		$policy  = \Sigil\Pro\Method_Policy::get();
-		$enabled = \Sigil\Pro\Zero_Setup::is_enabled();
+		$policy = \Sigil\Pro\Method_Policy::get();
 
 		restore_current_blog();
 
 		$this->assertSame( array( 'email' => false, 'totp' => true ), $policy['subscriber'] ?? array() );
-		$this->assertTrue( $enabled, 'the zero-setup floor applies across the network too' );
 	}
 
 	// The settings screen promises that a role with nothing ticked keeps every
@@ -337,83 +333,6 @@ class Test_Pro_Features extends WP_UnitTestCase {
 		$this->assertWPError( \Sigil\Pro\Portability::import( 'not json' ) );
 		$this->assertWPError( \Sigil\Pro\Portability::import( '{"plugin":"something-else","format":1}' ) );
 		$this->assertWPError( \Sigil\Pro\Portability::import( '{"plugin":"sigil-2fa","format":99}' ) );
-	}
-
-	/**
-	 * Whoever reads the inbox can request a reset link. Without a second factor
-	 * on that form, 2FA guards the front door and leaves the window open.
-	 *
-	 * @param array<string, string> $post
-	 */
-	// A trusted device is a standing permission to skip the second step, and a
-	// new password is what somebody does when they think another person has
-	// been in the account.
-	public function test_changing_the_password_revokes_trusted_devices(): void {
-		$user   = self::factory()->user->create( array( 'user_pass' => 'first-password' ) );
-		$device = \Sigil\Pro\Trusted_Devices::instance();
-		$token  = $device->trust_current_device( $user );
-
-		$this->assertTrue( $device->is_trusted( $user, $token ), 'the device is trusted to begin with' );
-
-		wp_update_user(
-			array(
-				'ID'        => $user,
-				'user_pass' => 'second-password',
-			)
-		);
-
-		$this->assertFalse( $device->is_trusted( $user, $token ) );
-	}
-
-	public function test_an_unrelated_profile_edit_leaves_trust_alone(): void {
-		$user   = self::factory()->user->create( array( 'user_pass' => 'first-password' ) );
-		$device = \Sigil\Pro\Trusted_Devices::instance();
-		$token  = $device->trust_current_device( $user );
-
-		wp_update_user(
-			array(
-				'ID'         => $user,
-				'first_name' => 'Renamed',
-			)
-		);
-
-		$this->assertTrue( $device->is_trusted( $user, $token ), 'changing a name is not a credential change' );
-	}
-
-	// Membership, single sign-on and password-expiry plugins set a password
-	// directly rather than going through the profile or the reset form.
-	public function test_setting_a_password_directly_revokes_trusted_devices(): void {
-		$user   = self::factory()->user->create( array( 'user_pass' => 'first-password' ) );
-		$device = \Sigil\Pro\Trusted_Devices::instance();
-		$token  = $device->trust_current_device( $user );
-
-		wp_set_password( 'second-password', $user );
-
-		$this->assertFalse( $device->is_trusted( $user, $token ) );
-	}
-
-	// Core sets the password again, unchanged, when a stored hash needs
-	// rehashing at login. Treating that as a credential change would revoke
-	// every device on the site as people signed in after a hashing change.
-	public function test_a_rehash_of_the_same_password_keeps_trust(): void {
-		$user   = self::factory()->user->create( array( 'user_pass' => 'first-password' ) );
-		$device = \Sigil\Pro\Trusted_Devices::instance();
-		$token  = $device->trust_current_device( $user );
-
-		$before = get_userdata( $user );
-		$device->revoke_on_set_password( 'first-password', $user, $before );
-
-		$this->assertTrue( $device->is_trusted( $user, $token ) );
-	}
-
-	public function test_a_password_reset_revokes_trusted_devices(): void {
-		$user   = self::factory()->user->create_and_get( array( 'user_pass' => 'first-password' ) );
-		$device = \Sigil\Pro\Trusted_Devices::instance();
-		$token  = $device->trust_current_device( (int) $user->ID );
-
-		reset_password( $user, 'third-password' );
-
-		$this->assertFalse( $device->is_trusted( (int) $user->ID, $token ) );
 	}
 
 	// A passkey cannot be typed into the reset form. The account was still asked

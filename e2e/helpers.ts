@@ -101,3 +101,45 @@ export async function logoutKeepingTrust(page: Page) {
 	const keep = cookies.filter((c) => !c.name.startsWith('wordpress'));
 	if (keep.length) await ctx.addCookies(keep);
 }
+
+// Enrols TOTP for the logged-in user through the setup screen and returns the
+// secret.
+export async function enrolTotp(page: Page): Promise<string> {
+	await page.goto('/wp-admin/users.php?page=sigil-2fa-setup&method=totp');
+	const secret = await page.locator('input[name="sigil_totp_secret"]').inputValue();
+	await page.fill('input[name="sigil_totp_code"]', totp(secret));
+	await page
+		.locator('button[type="submit"], input[type="submit"]')
+		.filter({ hasText: /enrol|enable|verify|confirm|save/i })
+		.first()
+		.click();
+	await expect(page.locator('body')).toContainText(/backup code/i);
+	return secret;
+}
+
+// A software authenticator, so the browser prompt resolves without a real device.
+// It also answers passkey autofill by itself, which a person has to pick from the
+// username field, so a page with it would sign in before a test could type a
+// password. Autofill stays off unless a test is about autofill.
+export async function addVirtualAuthenticator(page: Page, { autofill = false } = {}) {
+	if (!autofill) {
+		await page.addInitScript(() => {
+			if (window.PublicKeyCredential) {
+				window.PublicKeyCredential.isConditionalMediationAvailable = async () => false;
+			}
+		});
+	}
+
+	const client = await page.context().newCDPSession(page);
+	await client.send('WebAuthn.enable');
+	await client.send('WebAuthn.addVirtualAuthenticator', {
+		options: {
+			protocol: 'ctap2',
+			transport: 'internal',
+			hasResidentKey: true,
+			hasUserVerification: true,
+			isUserVerified: true,
+			automaticPresenceSimulation: true,
+		},
+	});
+}
