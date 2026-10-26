@@ -31,6 +31,8 @@ register_activation_hook(
 		require_once SIGIL_DIR . 'includes/class-policy.php';
 		require_once SIGIL_DIR . 'includes/class-schema.php';
 		Sigil\Schema::install();
+		require_once SIGIL_DIR . 'includes/class-review-prompt.php';
+		Sigil\Review_Prompt::record_activation();
 	}
 );
 

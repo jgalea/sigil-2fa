@@ -22,7 +22,7 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 function sigil_uninstall_site(): void {
 	global $wpdb;
 
-	foreach ( array( 'sigil_db_version', 'sigil_policy', 'sigil_frontend_page' ) as $option ) {
+	foreach ( array( 'sigil_db_version', 'sigil_policy', 'sigil_frontend_page', 'sigil_first_activated' ) as $option ) {
 		delete_option( $option );
 	}
 
@@ -51,7 +51,7 @@ function sigil_uninstall(): void {
 
 	wp_clear_scheduled_hook( 'sigil_purge_attempts' );
 
-	foreach ( array( '_sigil_methods', '_sigil_deadline', '_sigil_reset_log', '_sigil_email_debug_code', '_sigil_preferred_method', '_sigil_pro_trusted', '_sigil_pro_bypass' ) as $meta_key ) {
+	foreach ( array( '_sigil_methods', '_sigil_deadline', '_sigil_reset_log', '_sigil_email_debug_code', '_sigil_preferred_method', '_sigil_pro_trusted', '_sigil_pro_bypass', '_sigil_last_factor', '_sigil_review_hidden' ) as $meta_key ) {
 		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->usermeta} WHERE meta_key = %s", $meta_key ) );
 	}
 
@@ -60,7 +60,7 @@ function sigil_uninstall(): void {
 		return;
 	}
 
-	foreach ( array( 'sigil_db_version', 'sigil_policy' ) as $option ) {
+	foreach ( array( 'sigil_db_version', 'sigil_policy', 'sigil_first_activated' ) as $option ) {
 		delete_site_option( $option );
 	}
 
