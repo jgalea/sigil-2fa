@@ -285,7 +285,10 @@ final class Challenge {
 
 		$user = '' !== $token ? self::user_for( $token ) : null;
 		if ( null === $user ) {
-			wp_safe_redirect( wp_login_url() );
+			// A form submitted twice (Enter plus a password manager's auto-submit)
+			// arrives after the first submit spent the token and set the cookie.
+			// That browser is already signed in, so the login form is the wrong answer.
+			wp_safe_redirect( is_user_logged_in() ? admin_url() : wp_login_url() );
 			exit;
 		}
 
