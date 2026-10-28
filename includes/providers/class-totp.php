@@ -63,9 +63,9 @@ final class TOTP implements Provider {
 		$uri    = 'otpauth://totp/' . $label . '?secret=' . rawurlencode( $secret ) . '&issuer=' . $issuer;
 
 		echo '<div class="sigil-totp-enrol">';
-		echo '<p><label for="sigil-totp-secret">' . esc_html__( 'Secret key', 'sigil-2fa' ) . '</label> ';
+		echo '<p><span>' . esc_html__( 'Secret key', 'sigil-2fa' ) . '</span> ';
 		echo '<code id="sigil-totp-secret">' . esc_html( $secret ) . '</code></p>';
-		echo '<p><label for="sigil-totp-uri">' . esc_html__( 'Provisioning URI', 'sigil-2fa' ) . '</label> ';
+		echo '<p><span>' . esc_html__( 'Provisioning URI', 'sigil-2fa' ) . '</span> ';
 		echo '<code id="sigil-totp-uri">' . esc_html( $uri ) . '</code></p>';
 		echo '<div class="sigil-totp-qr" data-otpauth="' . esc_attr( $uri ) . '"></div>';
 		echo '<input type="hidden" name="sigil_totp_secret" value="' . esc_attr( $secret ) . '" />';

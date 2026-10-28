@@ -48,7 +48,7 @@ final class Enrolment {
 	public function enqueue_assets( string $hook_suffix ): void {
 		$load = false;
 
-		if ( is_string( $hook_suffix ) && false !== strpos( $hook_suffix, self::PAGE_SLUG ) ) {
+		if ( false !== strpos( $hook_suffix, self::PAGE_SLUG ) || in_array( $hook_suffix, array( 'profile.php', 'user-edit.php' ), true ) ) {
 			$load = true;
 		}
 
@@ -136,7 +136,7 @@ final class Enrolment {
 		$devices   = Trusted_Devices::instance()->count_for( $user_id );
 
 		echo '<h2>' . esc_html__( 'Two-Factor Authentication', 'sigil-2fa' ) . '</h2>';
-		echo '<table class="form-table sigil-profile" role="presentation"><tbody>';
+		echo '<div class="sigil-profile-card"><table class="form-table sigil-profile" role="presentation"><tbody>';
 
 		echo '<tr><th scope="row">' . esc_html__( 'Methods', 'sigil-2fa' ) . '</th><td>';
 		echo esc_html( array() !== $labels ? implode( ', ', $labels ) : __( 'None set up yet.', 'sigil-2fa' ) );
@@ -164,7 +164,7 @@ final class Enrolment {
 		}
 		echo '</td></tr>';
 
-		echo '</tbody></table>';
+		echo '</tbody></table></div>';
 	}
 
 	/**

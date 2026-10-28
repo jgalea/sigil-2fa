@@ -1,123 +1,264 @@
 .sigil-enrol {
-	max-width: 720px;
+	max-inline-size: 760px;
+	--sigil-border: oklch(0.8 0 none);
+	--sigil-surface: oklch(1 0 none);
+	--sigil-muted: oklch(0.96 0 none);
+}
+
+.sigil-enrol h1,
+.sigil-enrol h3,
+.sigil-enrol__intro {
+	text-wrap: balance;
 }
 
 .sigil-enrol__intro {
-	margin-bottom: 1.25em;
+	margin-block-end: 20px;
 }
 
 .sigil-enrol__status {
-	margin: 1em 0;
+	margin-block: 16px;
+	padding: 12px 16px;
+	background: var(--sigil-surface);
+	border-inline-start: 4px solid var(--wp-admin-theme-color, currentColor);
+}
+
+.sigil-enrol__status p {
+	margin: 0;
+}
+
+.sigil-enrol__status strong {
+	font-weight: 400;
 }
 
 .sigil-enrol__tabs ul {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.35rem;
+	gap: 4px;
 	list-style: none;
-	margin: 0 0 1rem;
+	margin: 0;
 	padding: 0;
-	border-bottom: 1px solid #c3c4c7;
+	border-block-end: 1px solid var(--sigil-border);
+}
+
+.sigil-enrol__tabs li {
+	margin: 0;
 }
 
 .sigil-enrol__tab {
 	display: inline-flex;
 	align-items: center;
-	gap: 0.4rem;
-	padding: 0.55rem 0.85rem;
+	gap: 6px;
+	min-block-size: 44px;
+	box-sizing: border-box;
+	padding: 8px 12px;
 	text-decoration: none;
-	color: #2c3338;
-	border: 1px solid transparent;
-	border-bottom: none;
-	border-radius: 4px 4px 0 0;
-	margin-bottom: -1px;
-}
-
-.sigil-enrol__tab:hover,
-.sigil-enrol__tab:focus {
-	color: #1d2327;
-	background: #f6f7f7;
+	color: inherit;
+	background: var(--sigil-muted);
+	border: 1px solid var(--sigil-border);
+	border-block-end: 0;
+	margin-block-end: -1px;
 }
 
 .sigil-enrol__tab.is-active {
-	background: #fff;
-	border-color: #c3c4c7;
-	border-bottom-color: #fff;
+	background: var(--sigil-surface);
+	border-block-end: 1px solid var(--sigil-surface);
+	box-shadow: inset 0 3px var(--wp-admin-theme-color, currentColor);
 	font-weight: 600;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.sigil-enrol__tab:hover {
+		color: var(--wp-admin-theme-color, currentColor);
+		background: var(--sigil-surface);
+	}
+}
+
+.sigil-enrol :is(a, button, input):focus-visible,
+.sigil-profile-card a:focus-visible {
+	outline: 2px solid var(--wp-admin-theme-color, currentColor);
+	outline-offset: 2px;
+}
+
+.sigil-enrol__tab:active {
+	background: var(--sigil-muted);
 }
 
 .sigil-enrol__badge {
-	display: inline-block;
-	padding: 0.1rem 0.4rem;
-	font-size: 11px;
-	line-height: 1.4;
-	font-weight: 600;
-	text-transform: uppercase;
-	letter-spacing: 0.02em;
-	color: #fff;
-	background: #00a32a;
-	border-radius: 3px;
+	font-size: 10px;
+	line-height: 1.5;
+	font-weight: 400;
+	padding-inline: 4px;
+	border: 1px solid currentColor;
+	border-radius: 2px;
+}
+
+.sigil-enrol__panel,
+.sigil-enrol__devices,
+.sigil-profile-card {
+	background: var(--sigil-surface, oklch(1 0 none));
+	border: 1px solid var(--sigil-border, oklch(0.8 0 none));
+	padding: clamp(16px, 3vw, 24px);
+	box-sizing: border-box;
+	overflow-wrap: break-word;
 }
 
 .sigil-enrol__panel {
-	background: #fff;
-	border: 1px solid #c3c4c7;
-	border-radius: 0 4px 4px 4px;
-	padding: 1rem 1.25rem 1.25rem;
+	border-block-start: 0;
 }
 
-.sigil-enrol__panel h3 {
-	margin-top: 0;
+.sigil-enrol__panel > h3 {
+	margin-block: 0 16px;
+}
+
+.sigil-enrol__devices {
+	margin-block-start: 20px;
+	max-inline-size: 520px;
+}
+
+.sigil-enrol__devices p:first-of-type {
+	margin-block-start: 0;
+}
+
+.sigil-enrol__devices p:last-child {
+	margin-block-end: 0;
+}
+
+.sigil-enrol__devices h3 {
+	margin-block-start: 0;
+}
+
+.sigil-enrol__form p.submit {
+	margin: 0;
+	padding-block: 12px 0;
+}
+
+.sigil-enrol__form label,
+.sigil-totp-enrol p > span {
+	display: block;
+	margin-block-end: 6px;
+	font-weight: 600;
+}
+
+.sigil-enrol input.regular-text {
+	inline-size: min(100%, 25em);
+}
+
+.sigil-enrol input {
+	max-inline-size: 100%;
+	box-sizing: border-box;
+}
+
+.sigil-passkey-list {
+	margin-block: 12px 20px;
+	border-block-start: 1px solid var(--sigil-border);
+}
+
+.sigil-passkey-list li {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 4px 16px;
+	padding-block: 12px;
+	margin: 0;
+	border-block-end: 1px solid var(--sigil-border);
+}
+
+.sigil-passkey-list strong {
+	min-inline-size: 0;
+	overflow-wrap: anywhere;
+}
+
+.sigil-enrol .sigil-passkey-notice {
+	margin-inline: 0;
 }
 
 .sigil-enrol__backup-once {
 	padding: 12px 16px;
-	margin: 1em 0;
+	margin-block: 16px;
 }
 
 .sigil-backup-codes-list {
 	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 	font-size: 14px;
-	columns: 2;
-	max-width: 28em;
-	margin: 0.75em 0;
+	display: grid;
+	grid-template-columns: repeat(2, max-content);
+	gap: 8px 32px;
+	margin-block: 12px;
 }
 
 .sigil-backup-codes-list li {
-	margin: 0.25em 0;
+	margin: 0;
 }
 
 .sigil-totp-enrol code {
 	display: inline-block;
-	word-break: break-all;
-	padding: 0.2em 0.4em;
-	background: #f0f0f1;
+	overflow-wrap: anywhere;
+	padding: 4px 6px;
+	background: var(--sigil-muted, oklch(0.96 0 none));
 }
 
 .sigil-totp-qr {
-	margin: 1em 0;
-	min-height: 180px;
+	margin-block: 16px;
 }
 
-.sigil-totp-qr canvas,
-.sigil-totp-qr img {
+.sigil-totp-qr :is(canvas, img, svg) {
 	display: block;
-	width: 180px;
-	height: 180px;
+	inline-size: 220px;
+	max-inline-size: 100%;
+	block-size: auto;
 }
 
+.sigil-enrol__form--prefer,
 .sigil-enrol__form--remove {
-	margin-top: 0.5em;
+	display: inline-block;
+	margin-block: 4px 12px;
+	margin-inline-end: 8px;
+	vertical-align: middle;
 }
 
-/* The QR is drawn scalable so it stays sharp; give it a sensible fixed size
-   rather than letting it fill whatever container it lands in. */
-.sigil-totp-qr svg {
-	display: block;
-	width: 220px;
-	max-width: 100%;
-	height: auto;
-	margin: 0 0 16px;
+.sigil-enrol__form--remove p {
+	margin: 0;
+}
+
+.sigil-enrol .button.button-link-delete {
+	color: oklch(0.56 0.2 25);
+	border-color: currentColor;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.sigil-enrol .button.button-link-delete:hover {
+		color: oklch(0.46 0.18 25);
+		background: color-mix(in oklch, oklch(0.56 0.2 25) 8%, transparent);
+	}
+}
+
+.sigil-passkey-upgrade ul {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.sigil-passkey-upgrade li {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px 12px;
+	padding-block: 8px;
+	border-block-start: 1px solid var(--sigil-border);
+}
+
+.sigil-profile-card {
+	max-inline-size: 760px;
+}
+
+.sigil-profile th {
+	padding-block-start: 12px;
+}
+
+.sigil-profile td {
+	padding-block: 12px;
 }
 
 .sigil-wizard__steps {
