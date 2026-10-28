@@ -10,10 +10,15 @@
 		return map[key] || '';
 	}
 
-	function setStatus(root, message) {
+	function setStatus(root, message, success) {
 		var el = root.querySelector('.sigil-passkey-status');
 		if (el) {
 			el.textContent = message || '';
+			var notice = root.querySelector('.sigil-passkey-notice');
+			if (notice) {
+				notice.hidden = !message;
+				notice.className = 'sigil-passkey-notice notice inline ' + (success ? 'notice-success' : 'notice-info');
+			}
 		}
 	}
 
@@ -155,7 +160,11 @@
 				if (!json || !json.success) {
 					throw new Error((json && json.data && json.data.message) || i18n('failed'));
 				}
-				setStatus(root, (json.data && json.data.message) || i18n('registered'));
+				setStatus(root, (json.data && json.data.message) || i18n('registered'), true);
+				var labelInput = root.querySelector('#sigil-passkey-label');
+				if (labelInput) {
+					labelInput.value = '';
+				}
 				root.dispatchEvent(new window.CustomEvent('sigil:passkey-registered', { bubbles: true }));
 			})
 			.catch(function (err) {

@@ -57,6 +57,18 @@
 		}
 	}
 
+	document.addEventListener('sigil:passkey-registered', function (event) {
+		if (!event.target.closest('#sigil-enrol-form-passkey')) {
+			return;
+		}
+		var url = new window.URL(window.location.href);
+		url.searchParams.set('method', 'passkey');
+		url.searchParams.set('sigil_status', 'success');
+		url.searchParams.set('sigil_code', 'enrolled');
+		url.searchParams.delete('sigil_msg');
+		window.location.assign(url.href);
+	});
+
 	if (document.readyState === 'loading') {
 		document.addEventListener('DOMContentLoaded', initTotpQr);
 	} else {
