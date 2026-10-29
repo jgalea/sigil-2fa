@@ -13,6 +13,7 @@
  * @var bool               $needs_step_up
  * @var bool               $passkey_proof
  * @var bool               $own_account
+ * @var list<object>       $passkeys
  * @var int                $trusted_count
  */
 
@@ -35,6 +36,7 @@ $active        = isset( $active ) ? (string) $active : '';
 $needs_step_up = ! empty( $needs_step_up );
 $passkey_proof = ! empty( $passkey_proof );
 $own_account   = ! empty( $own_account );
+$passkeys      = isset( $passkeys ) && is_array( $passkeys ) ? $passkeys : array();
 $trusted_count = isset( $trusted_count ) ? (int) $trusted_count : 0;
 $post_url      = admin_url( 'admin-post.php' );
 ?>
@@ -58,6 +60,9 @@ $post_url      = admin_url( 'admin-post.php' );
 					break;
 				case 'removed':
 					echo esc_html__( 'Authentication method removed.', 'sigil-2fa' );
+					break;
+				case 'passkey_removed':
+					echo esc_html__( 'Passkey removed. Delete it from your password manager too, or your browser will keep offering it.', 'sigil-2fa' );
 					break;
 				case 'preferred':
 					echo esc_html__( 'You will be asked for this method first from now on.', 'sigil-2fa' );
@@ -158,6 +163,9 @@ $post_url      = admin_url( 'admin-post.php' );
 			<?php else : ?>
 				<p><?php echo esc_html( \Sigil\Step_Up::passkey_reason() ); ?></p>
 			<?php endif; ?>
+			<?php if ( 'passkey' === $active ) : ?>
+				<?php $show_remove = false; require __DIR__ . '/passkey-list.php'; ?>
+			<?php endif; ?>
 			<?php \Sigil\Enrolment::instance()->render_step_up_form( $user_id, $active ); ?>
 		</div>
 	<?php elseif ( $active_provider ) : ?>
@@ -202,6 +210,10 @@ $post_url      = admin_url( 'admin-post.php' );
 						<?php echo esc_html__( 'This method is set up on your account.', 'sigil-2fa' ); ?>
 					</p>
 
+					<?php if ( 'passkey' === $active_provider->id() ) : ?>
+						<?php $show_remove = true; require __DIR__ . '/passkey-list.php'; ?>
+					<?php endif; ?>
+
 					<?php if ( \Sigil\Providers::preference( $user_id ) === $active_provider->id() ) : ?>
 						<p class="description"><?php echo esc_html__( 'This is the method you are asked for first.', 'sigil-2fa' ); ?></p>
 					<?php elseif ( count( $methods ) > 1 ) : ?>
@@ -221,7 +233,7 @@ $post_url      = admin_url( 'admin-post.php' );
 						<?php wp_nonce_field( 'sigil_remove_' . $user_id . '_' . $active_provider->id() ); ?>
 						<p>
 							<button type="submit" class="button button-link-delete">
-								<?php echo esc_html__( 'Remove this method', 'sigil-2fa' ); ?>
+								<?php echo esc_html( 'passkey' === $active_provider->id() ? __( 'Remove all passkeys', 'sigil-2fa' ) : __( 'Remove this method', 'sigil-2fa' ) ); ?>
 							</button>
 						</p>
 					</form>

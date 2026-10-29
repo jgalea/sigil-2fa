@@ -24,6 +24,7 @@ final class Enrolment {
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'admin_post_sigil_enrol', array( $this, 'handle_enrol_post' ) );
 		add_action( 'admin_post_sigil_remove_method', array( $this, 'handle_remove_post' ) );
+		add_action( 'admin_post_sigil_remove_passkey', array( $this, 'handle_remove_passkey_post' ) );
 		add_action( 'admin_post_sigil_prefer_method', array( $this, 'handle_prefer_post' ) );
 		add_action( 'admin_post_sigil_regenerate_backup', array( $this, 'handle_regenerate_backup_post' ) );
 		add_action( 'admin_post_sigil_step_up', array( $this, 'handle_step_up_post' ) );
@@ -370,6 +371,67 @@ final class Enrolment {
 		return true;
 	}
 
+	/**
+	 * Remove one passkey and keep the rest. Removing the last one is the same
+	 * as removing the method, so it goes through remove_method() and its
+	 * last-method guard.
+	 *
+	 * @return true|\WP_Error
+	 */
+	public function remove_passkey( int $user_id, int $credential_id ) {
+		if ( ! $this->can_manage_methods( $user_id ) ) {
+			return new \WP_Error(
+				'sigil_forbidden',
+				__( 'You are not allowed to change two-factor methods for this user.', 'sigil-2fa' )
+			);
+		}
+
+		if ( ! Step_Up::allows( $user_id ) ) {
+			return Step_Up::error();
+		}
+
+		$ids = self::credential_ids( $user_id );
+		if ( ! in_array( $credential_id, $ids, true ) ) {
+			return new \WP_Error(
+				'sigil_unknown_passkey',
+				__( 'That passkey is not registered on this account.', 'sigil-2fa' )
+			);
+		}
+
+		if ( 1 === count( $ids ) ) {
+			return $this->remove_method( $user_id, 'passkey' );
+		}
+
+		/** This action is documented in includes/class-enrolment.php */
+		do_action( 'sigil_before_methods_change', $user_id );
+
+		Credentials::delete( $credential_id, $user_id );
+
+		do_action( 'sigil_methods_changed', $user_id );
+
+		Step_Up::removed( $user_id, array( 'passkey:' . $credential_id ) );
+
+		return true;
+	}
+
+	public function handle_remove_passkey_post(): void {
+		$user_id       = isset( $_POST['user_id'] ) ? absint( wp_unslash( $_POST['user_id'] ) ) : 0;
+		$credential_id = isset( $_POST['credential'] ) ? absint( wp_unslash( $_POST['credential'] ) ) : 0;
+
+		check_admin_referer( 'sigil_remove_passkey_' . $user_id . '_' . $credential_id );
+
+		if ( ! $this->can_manage_methods( $user_id ) ) {
+			wp_die( esc_html__( 'You are not allowed to change two-factor methods for this user.', 'sigil-2fa' ), '', array( 'response' => 403 ) );
+		}
+
+		$result = $this->remove_passkey( $user_id, $credential_id );
+		if ( is_wp_error( $result ) ) {
+			$this->redirect_with_status( $user_id, 'error', $result->get_error_code(), $result->get_error_message(), 'passkey' );
+		}
+
+		$this->redirect_with_status( $user_id, 'success', 'passkey_removed', '', 'passkey' );
+	}
+
 	public function handle_enrol_post(): void {
 		$user_id = isset( $_POST['user_id'] ) ? absint( wp_unslash( $_POST['user_id'] ) ) : (int) get_current_user_id();
 
@@ -646,6 +708,12 @@ final class Enrolment {
 		$providers = Providers::instance()->all( $user_id );
 		$methods   = Store::methods( $user_id );
 		$notices   = $this->consume_notices();
+
+		// A passkey method whose credentials are all gone is not a method.
+		if ( isset( $methods['passkey'] ) && array() === Credentials::for_user( $user_id ) ) {
+			unset( $methods['passkey'] );
+		}
+		$passkeys = isset( $methods['passkey'] ) ? Credentials::for_user( $user_id ) : array();
 
 		$backup_provider = Providers::instance()->get( 'backup' );
 		$show_backup     = $backup_provider instanceof Providers\Backup_Codes
