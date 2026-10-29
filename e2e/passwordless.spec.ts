@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { test, expect, Page } from '@playwright/test';
-import { resetTwoFactor, login, logout, addVirtualAuthenticator, confirmIdentity } from './helpers';
+import { resetTwoFactor, login, logout, addVirtualAuthenticator, confirmIdentity, expectPasskeyRegistered } from './helpers';
 
 function wp(...args: string[]): string {
 	return execFileSync('npx', ['@wordpress/env', 'run', 'cli', 'wp', ...args], { encoding: 'utf8' }).trim();
@@ -27,7 +27,7 @@ async function enrolPasskey(page: Page) {
 	await confirmIdentity(page);
 	await page.fill('#sigil-passkey-label', 'Virtual key');
 	await page.locator('.sigil-passkey-register').first().click();
-	await expect(page.locator('.sigil-passkey-status').first()).toContainText(/registered/i);
+	await expectPasskeyRegistered(page);
 }
 
 test('a passkey alone signs in, with no password and no challenge screen', async ({ page }) => {
@@ -92,7 +92,7 @@ test('an older passkey can be registered again for passwordless sign-in', async 
 	const again = page.locator('.sigil-passkey-upgrade .sigil-passkey-register');
 	await expect(again).toBeVisible();
 	await again.click();
-	await expect(page.locator('.sigil-passkey-status').first()).toContainText(/registered/i);
+	await expectPasskeyRegistered(page);
 
 	const after = JSON.parse(credentials());
 	expect(after).toHaveLength(1);

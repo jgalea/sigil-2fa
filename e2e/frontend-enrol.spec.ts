@@ -1,6 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { resetTwoFactor, login, logout, totp, confirmIdentity } from './helpers';
+import { resetTwoFactor, login, logout, totp, confirmIdentity, expectPasskeyRegistered } from './helpers';
 
 function cli(args: string[]): string {
 	return execFileSync('npx', ['@wordpress/env', 'run', 'cli', 'wp', ...args], { encoding: 'utf8' }).trim();
@@ -90,7 +90,7 @@ test('passkey enrolment works from the front-end page', async ({ page }) => {
 
 	await page.fill('#sigil-passkey-label', 'Front key');
 	await page.locator('.sigil-passkey-register').click();
-	await expect(page.locator('.sigil-passkey-status')).toContainText(/registered/i);
+	await expectPasskeyRegistered(page);
 	expect(errors).toEqual([]);
 });
 

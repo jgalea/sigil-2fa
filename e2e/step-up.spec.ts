@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { test, expect } from '@playwright/test';
-import { resetTwoFactor, login, totp, addVirtualAuthenticator } from './helpers';
+import { resetTwoFactor, login, totp, addVirtualAuthenticator, expectPasskeyRegistered } from './helpers';
 
 test.beforeEach(() => resetTwoFactor());
 
@@ -47,7 +47,7 @@ test('a stale session confirms with the password before adding a passkey', async
 	await page.goto('/wp-admin/users.php?page=sigil-2fa-setup&method=passkey');
 	await page.fill('#sigil-passkey-label', 'Virtual key');
 	await page.locator('.sigil-passkey-register').first().click();
-	await expect(page.locator('.sigil-passkey-status').first()).toContainText(/registered/i);
+	await expectPasskeyRegistered(page);
 });
 
 test('an authenticator code confirms too', async ({ page }) => {
