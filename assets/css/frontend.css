@@ -193,3 +193,32 @@
 	height: auto;
 	margin: 0 0 1rem;
 }
+
+.sigil-enrol__passkeys {
+	margin: 0 0 16px;
+	padding: 0;
+	list-style: none;
+}
+
+.sigil-enrol__passkey {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 12px;
+	padding-block: 8px;
+	border-block-end: 1px solid oklch(0.9 0 none);
+}
+
+.sigil-enrol__passkey-name {
+	font-weight: 600;
+	overflow-wrap: break-word;
+	min-inline-size: 0;
+}
+
+.sigil-enrol__passkey-meta {
+	color: oklch(0.5 0 none);
+}
+
+.sigil-enrol__passkey-remove {
+	margin-inline-start: auto;
+}

@@ -86,23 +86,6 @@ final class Passkey implements Provider {
 		$this->enqueue_script( $user_id, true );
 
 		echo '<div class="sigil-passkey-enrol" data-user-id="' . esc_attr( (string) $user_id ) . '">';
-		$credentials = Credentials::for_user( $user_id );
-		if ( [] !== $credentials ) {
-			echo '<h4>' . esc_html__( 'Registered passkeys', 'sigil-2fa' ) . '</h4>';
-			echo '<ul class="sigil-passkey-list">';
-			foreach ( $credentials as $credential ) {
-				echo '<li><strong>' . esc_html( (string) $credential->label ) . '</strong><span class="description">';
-				echo esc_html(
-					sprintf(
-						/* translators: %s: passkey creation date. */
-						__( 'Added %s', 'sigil-2fa' ),
-						get_date_from_gmt( (string) $credential->created_at, get_option( 'date_format' ) )
-					)
-				);
-				echo '</span></li>';
-			}
-			echo '</ul>';
-		}
 
 		echo '<p>' . esc_html__( 'Register a passkey for this account. You will be prompted by your browser or device.', 'sigil-2fa' ) . '</p>';
 		echo '<p><label for="sigil-passkey-label">' . esc_html__( 'Device label', 'sigil-2fa' ) . '</label> ';
