@@ -152,3 +152,10 @@ export async function confirmIdentity(page: Page, pass = 'password') {
 	await form.locator('button[type="submit"]').click();
 	await expect(form).toHaveCount(0);
 }
+
+// A registered passkey reloads the enrolment page onto its list, which wipes the
+// status line, so wait for the reloaded page instead.
+export async function expectPasskeyRegistered(page: Page) {
+	await page.waitForURL(/[?&]sigil_code=enrolled\b/);
+	await expect(page.locator('.sigil-enrol__passkey').first()).toBeVisible();
+}
