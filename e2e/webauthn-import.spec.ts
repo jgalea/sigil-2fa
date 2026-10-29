@@ -49,15 +49,9 @@ async function addVirtualAuthenticator(p: Page) {
 // The provider builds its relying party from an https:// AppID and compares
 // origins exactly, and its profile screen hides the register button on plain
 // HTTP. The test site is http://localhost, which browsers treat as secure, so
-// the AppID is pointed at the real origin and the hidden button is put back.
-// Registration itself still runs through the provider's own script and AJAX.
-const ORIGIN_PLUGIN = `<?php
-add_filter( 'webauthn_app_id', static function () {
-	$p = wp_parse_url( home_url() );
-	return $p['scheme'] . '://' . $p['host'] . ( isset( $p['port'] ) ? ':' . $p['port'] : '' );
-} );
-`;
-
+// e2e/mu-webauthn-origin.php points the AppID at the real origin and the hidden
+// button is put back here. Registration itself still runs through the
+// provider's own script and AJAX.
 const ADD_KEY_MARKUP =
 	'<div class="hide-if-no-js add-webauthn-key"><p><label for="webauthn-key-name"><strong>Key name:</strong></label>' +
 	'<input type="text" id="webauthn-key-name" value="" maxlength="255" /> ' +
@@ -69,7 +63,6 @@ test.describe.configure({ mode: 'serial' });
 test.beforeAll(async ({ browser }: { browser: Browser }) => {
 	cli(['plugin', 'install', 'two-factor', '--version=0.17.0', '--activate', '--force']);
 	cli(['plugin', 'install', 'two-factor-provider-webauthn', '--version=2.6.2', '--activate', '--force']);
-	php(`file_put_contents( WPMU_PLUGIN_DIR . '/e2e-webauthn-origin.php', base64_decode( '${Buffer.from(ORIGIN_PLUGIN).toString('base64')}' ) );`);
 
 	try {
 		cli(['user', 'delete', USER, '--yes']);
@@ -85,7 +78,6 @@ test.beforeAll(async ({ browser }: { browser: Browser }) => {
 test.afterAll(async () => {
 	setPasswordless(true);
 	await page.close();
-	php(`@unlink( WPMU_PLUGIN_DIR . '/e2e-webauthn-origin.php' );`);
 	for (const plugin of ['two-factor-provider-webauthn', 'two-factor']) {
 		try {
 			cli(['plugin', 'deactivate', plugin]);
