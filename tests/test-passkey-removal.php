@@ -18,6 +18,10 @@ class Test_Passkey_Removal extends WP_UnitTestCase {
 	private const PASS = 'correct horse battery';
 
 	public function set_up(): void {
+		if ( PHP_VERSION_ID < 80000 ) {
+			$this->markTestSkipped( 'Passkeys need PHP 8.0.' );
+		}
+
 		parent::set_up();
 		\Sigil\Schema::install();
 	}
