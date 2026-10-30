@@ -68,7 +68,7 @@ final class Wizard {
 			return false;
 		}
 
-		return in_array( true, $policy['roles'], true ) || '' !== $policy['min_capability'];
+		return $policy['enforce_all'] || in_array( true, $policy['roles'], true ) || '' !== $policy['min_capability'];
 	}
 
 	/**
@@ -170,6 +170,7 @@ final class Wizard {
 		wp_enqueue_style( 'sigil-admin', SIGIL_URL . 'assets/css/admin.css', array(), SIGIL_VERSION );
 		Enrolment::enqueue_enrol_assets();
 		wp_enqueue_script( 'sigil-wizard', SIGIL_URL . 'assets/js/wizard.js', array(), SIGIL_VERSION, true );
+		wp_enqueue_script( 'sigil-enforce-all', SIGIL_URL . 'assets/js/enforce-all.js', array(), SIGIL_VERSION, true );
 	}
 
 	/**
@@ -375,7 +376,10 @@ final class Wizard {
 		wp_nonce_field( self::POLICY );
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::POLICY ) . '" />';
 
-		echo '<fieldset>';
+		echo '<fieldset id="sigil-role-list">';
+		echo '<label style="display:block;margin-bottom:4px"><input type="checkbox" name="enforce_all" value="1" id="sigil-enforce-all"' . checked( $policy['enforce_all'], true, false ) . ' /> ';
+		echo '<strong>' . esc_html__( 'All users', 'sigil-2fa' ) . '</strong></label>';
+		echo '<p class="description" style="margin:0 0 8px 24px">' . esc_html__( 'Includes roles added later, such as by WooCommerce or an SEO plugin. Application passwords are controlled separately, per role, under Settings.', 'sigil-2fa' ) . '</p>';
 		foreach ( wp_roles()->roles as $slug => $role ) {
 			$slug = sanitize_key( (string) $slug );
 			echo '<label style="display:block;margin-bottom:4px">';
@@ -419,10 +423,13 @@ final class Wizard {
 			$roles[ $slug ] = ! empty( $posted[ $slug ] );
 		}
 
+		$enforce_all = ! empty( $_POST['enforce_all'] );
+
 		$patch = array(
-			'enabled'    => in_array( true, $roles, true ),
-			'roles'      => $roles,
-			'grace_days' => isset( $_POST['grace_days'] ) ? absint( wp_unslash( $_POST['grace_days'] ) ) : 7,
+			'enabled'     => $enforce_all || in_array( true, $roles, true ),
+			'enforce_all' => $enforce_all,
+			'roles'       => $roles,
+			'grace_days'  => isset( $_POST['grace_days'] ) ? absint( wp_unslash( $_POST['grace_days'] ) ) : 7,
 		);
 
 		if ( Policy::would_lock_out( get_current_user_id(), $patch ) ) {

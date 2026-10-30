@@ -227,6 +227,20 @@ class Test_Wizard extends WP_UnitTestCase {
 		$this->assertTrue( (bool) \Sigil\Network::get_option( \Sigil\Wizard::OPTION, false ) );
 	}
 
+	public function test_all_users_keeps_the_role_selection_for_when_it_is_turned_off(): void {
+		$admin = $this->admin();
+		$this->enrol_authenticator( $admin );
+
+		// The page script re-enables the disabled role boxes on submit, so the selection is posted.
+		$this->submit_policy( array( 'enforce_all' => '1', 'roles' => array( 'editor' => '1' ), 'grace_days' => '7' ) );
+
+		$policy = \Sigil\Policy::get();
+		$this->assertTrue( $policy['enabled'] );
+		$this->assertTrue( $policy['enforce_all'] );
+		$this->assertTrue( $policy['roles']['editor'] );
+		$this->assertFalse( $policy['roles']['subscriber'] );
+	}
+
 	public function test_choosing_no_roles_enforces_nothing(): void {
 		$admin = $this->admin();
 		$this->enrol_authenticator( $admin );
