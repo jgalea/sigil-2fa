@@ -62,6 +62,8 @@ final class Settings {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice flag set by our own redirect.
 		$locked_out = isset( $_GET['lockout'] ) && '1' === sanitize_key( wp_unslash( $_GET['lockout'] ) );
 
+		wp_enqueue_script( 'sigil-enforce-all', SIGIL_URL . 'assets/js/enforce-all.js', array(), SIGIL_VERSION, true );
+
 		require SIGIL_DIR . 'templates/settings.php';
 	}
 
@@ -103,6 +105,7 @@ final class Settings {
 
 		$patch = array(
 			'enabled'             => ! empty( $raw['enabled'] ),
+			'enforce_all'         => ! empty( $raw['enforce_all'] ),
 			'roles'               => $roles_in,
 			'min_capability'      => $cap,
 			'grace_days'          => $grace,
