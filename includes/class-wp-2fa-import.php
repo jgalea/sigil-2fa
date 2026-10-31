@@ -511,9 +511,10 @@ final class WP_2FA_Import {
 
 		Policy::update(
 			array(
-				'enabled'    => true,
-				'roles'      => $roles,
-				'grace_days' => $mapped['grace_days'],
+				'enabled'     => true,
+				'enforce_all' => false,
+				'roles'       => $roles,
+				'grace_days'  => $mapped['grace_days'],
 			)
 		);
 

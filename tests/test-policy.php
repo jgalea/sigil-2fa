@@ -45,4 +45,63 @@ class Test_Policy extends WP_UnitTestCase {
 		$user->add_role( 'editor' );
 		$this->assertTrue( \Sigil\Policy::required_for( $uid ) );
 	}
+
+	public function test_enforce_all_defaults_to_off(): void {
+		$this->assertFalse( \Sigil\Policy::get()['enforce_all'] );
+	}
+
+	public function test_enforce_all_covers_a_role_that_is_not_listed(): void {
+		\Sigil\Policy::update( [ 'enabled' => true, 'enforce_all' => true, 'roles' => [ 'administrator' => true ] ] );
+		$uid = self::factory()->user->create( [ 'role' => 'subscriber' ] );
+		$this->assertTrue( \Sigil\Policy::required_for( $uid ) );
+	}
+
+	public function test_enforce_all_covers_a_role_added_later(): void {
+		\Sigil\Policy::update( [ 'enabled' => true, 'enforce_all' => true ] );
+		add_role( 'sigil_late_role', 'Late role' );
+		$uid = self::factory()->user->create( [ 'role' => 'sigil_late_role' ] );
+		$this->assertTrue( \Sigil\Policy::required_for( $uid ) );
+		remove_role( 'sigil_late_role' );
+	}
+
+	public function test_enforce_all_covers_a_user_with_no_role(): void {
+		\Sigil\Policy::update( [ 'enabled' => true, 'enforce_all' => true ] );
+		$uid  = self::factory()->user->create( [ 'role' => 'subscriber' ] );
+		$user = get_user_by( 'id', $uid );
+		$user->set_role( '' );
+		$this->assertSame( [], $user->roles );
+		$this->assertTrue( \Sigil\Policy::required_for( $uid ) );
+	}
+
+	public function test_enforce_all_covers_a_user_with_several_roles(): void {
+		\Sigil\Policy::update( [ 'enabled' => true, 'enforce_all' => true ] );
+		$uid  = self::factory()->user->create( [ 'role' => 'subscriber' ] );
+		$user = get_user_by( 'id', $uid );
+		$user->add_role( 'contributor' );
+		$this->assertTrue( \Sigil\Policy::required_for( $uid ) );
+	}
+
+	public function test_enforce_all_off_keeps_the_per_role_behaviour(): void {
+		\Sigil\Policy::update( [ 'enabled' => true, 'enforce_all' => false, 'roles' => [ 'administrator' => true ] ] );
+		$admin = self::factory()->user->create( [ 'role' => 'administrator' ] );
+		$sub   = self::factory()->user->create( [ 'role' => 'subscriber' ] );
+		$none  = self::factory()->user->create( [ 'role' => 'subscriber' ] );
+		get_user_by( 'id', $none )->set_role( '' );
+		$this->assertTrue( \Sigil\Policy::required_for( $admin ) );
+		$this->assertFalse( \Sigil\Policy::required_for( $sub ) );
+		$this->assertFalse( \Sigil\Policy::required_for( $none ) );
+	}
+
+	public function test_enforce_all_does_nothing_while_enforcement_is_off(): void {
+		\Sigil\Policy::update( [ 'enabled' => false, 'enforce_all' => true ] );
+		$uid = self::factory()->user->create( [ 'role' => 'subscriber' ] );
+		$this->assertFalse( \Sigil\Policy::required_for( $uid ) );
+	}
+
+	public function test_enforce_all_drives_the_grace_deadline(): void {
+		\Sigil\Policy::update( [ 'enabled' => true, 'enforce_all' => true, 'grace_days' => 0 ] );
+		$uid = self::factory()->user->create( [ 'role' => 'subscriber' ] );
+		$this->assertNotNull( \Sigil\Policy::deadline_for( $uid ) );
+		$this->assertTrue( \Sigil\Policy::must_enrol_now( $uid ) );
+	}
 }

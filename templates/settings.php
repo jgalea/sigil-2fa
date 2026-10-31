@@ -88,7 +88,12 @@ $locked_out = ! empty( $locked_out );
 					<?php if ( array() === $roles ) : ?>
 						<p class="description"><?php echo esc_html__( 'No roles found.', 'sigil-2fa' ); ?></p>
 					<?php else : ?>
-						<fieldset>
+						<fieldset id="sigil-role-list">
+							<label style="display:block;margin-bottom:4px;">
+								<input type="checkbox" id="sigil-enforce-all" name="sigil_policy[enforce_all]" value="1" <?php checked( ! empty( $policy['enforce_all'] ) ); ?> />
+								<strong><?php echo esc_html__( 'All users', 'sigil-2fa' ); ?></strong>
+							</label>
+							<p class="description" style="margin:0 0 8px 24px;"><?php echo esc_html__( 'Includes roles added later, such as by WooCommerce or an SEO plugin. Application passwords are controlled separately, per role, under Disable application passwords.', 'sigil-2fa' ); ?></p>
 							<?php foreach ( $roles as $role_slug => $role_obj ) : ?>
 								<?php
 								$role_slug  = (string) $role_slug;

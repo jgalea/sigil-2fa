@@ -14,6 +14,7 @@ final class Policy {
 	/**
 	 * @return array{
 	 *   enabled: bool,
+	 *   enforce_all: bool,
 	 *   roles: array<string, bool>,
 	 *   min_capability: string,
 	 *   grace_days: int,
@@ -25,6 +26,7 @@ final class Policy {
 	private static function defaults(): array {
 		return [
 			'enabled'             => false,
+			'enforce_all'         => false,
 			'roles'               => [],
 			'min_capability'      => '',
 			'grace_days'          => 7,
@@ -37,6 +39,7 @@ final class Policy {
 	/**
 	 * @return array{
 	 *   enabled: bool,
+	 *   enforce_all: bool,
 	 *   roles: array<string, bool>,
 	 *   min_capability: string,
 	 *   grace_days: int,
@@ -100,11 +103,15 @@ final class Policy {
 	}
 
 	/**
-	 * @param array{enabled: bool, roles: array<string, bool>, min_capability: string} $policy
+	 * @param array{enabled: bool, enforce_all: bool, roles: array<string, bool>, min_capability: string} $policy
 	 */
 	private static function covers( array $policy, \WP_User $user ): bool {
 		if ( ! $policy['enabled'] ) {
 			return false;
+		}
+
+		if ( $policy['enforce_all'] ) {
+			return true;
 		}
 
 		foreach ( (array) $user->roles as $role ) {
@@ -170,6 +177,7 @@ final class Policy {
 	 * @param array<string, mixed> $policy
 	 * @return array{
 	 *   enabled: bool,
+	 *   enforce_all: bool,
 	 *   roles: array<string, bool>,
 	 *   min_capability: string,
 	 *   grace_days: int,
@@ -193,6 +201,7 @@ final class Policy {
 
 		return [
 			'enabled'             => ! empty( $policy['enabled'] ),
+			'enforce_all'         => ! empty( $policy['enforce_all'] ),
 			'roles'               => self::sanitize_role_map( $policy['roles'] ?? [] ),
 			'min_capability'      => $cap,
 			'grace_days'          => $grace,

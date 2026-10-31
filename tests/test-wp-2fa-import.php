@@ -230,8 +230,10 @@ class Test_WP_2FA_Import extends WP_UnitTestCase {
 		WP_2FA_Import::run( array( $uid ), false );
 		$this->assertFalse( Policy::get()['enabled'], 'importing users never changes the policy' );
 
+		Policy::update( array( 'enforce_all' => true ) );
 		$this->assertTrue( WP_2FA_Import::apply_policy() );
 		$policy = Policy::get();
+		$this->assertFalse( $policy['enforce_all'], 'the imported role list replaces All users' );
 		$this->assertTrue( $policy['enabled'] );
 		$this->assertTrue( $policy['roles']['administrator'] );
 		$this->assertFalse( $policy['roles']['editor'] );
