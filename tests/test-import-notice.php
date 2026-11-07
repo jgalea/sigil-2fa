@@ -13,9 +13,13 @@ class Test_Import_Notice extends WP_UnitTestCase {
 			define( 'WP_2FA_VERSION', '0.0.0-test' );
 		}
 
-		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+		$admin = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		if ( is_multisite() ) {
+			grant_super_admin( $admin );
+		}
+		wp_set_current_user( $admin );
 		set_current_screen( 'dashboard' );
-		delete_option( 'sigil_import_notice_hidden' );
+		\Sigil\Network::delete_option( 'sigil_import_notice_hidden' );
 	}
 
 	private function notice_html(): string {
