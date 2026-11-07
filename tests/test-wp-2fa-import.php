@@ -173,6 +173,7 @@ class Test_WP_2FA_Import extends WP_UnitTestCase {
 	}
 
 	public function test_passkey_carries_over_and_signs_in(): void {
+		$this->skip_without_passkeys();
 		$keys          = $this->passkey_keypair();
 		$credential_id = random_bytes( 20 );
 		$pem           = openssl_pkey_get_details( $keys['private'] )['key'];

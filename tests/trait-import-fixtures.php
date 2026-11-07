@@ -11,6 +11,12 @@ use Sigil\Providers\TOTP;
  */
 trait Import_Fixtures {
 
+	private function skip_without_passkeys(): void {
+		if ( PHP_VERSION_ID < 80000 ) {
+			$this->markTestSkipped( 'Passkeys need PHP 8.0.' );
+		}
+	}
+
 	/**
 	 * Create a source plugin's table for real. The suite turns CREATE TABLE into
 	 * CREATE TEMPORARY TABLE, which SHOW TABLES cannot see, and the importers
