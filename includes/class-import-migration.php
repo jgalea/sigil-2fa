@@ -15,6 +15,8 @@ final class Import_Migration {
 
 	private const ACTION        = 'sigil_import';
 	private const POLICY_ACTION = 'sigil_import_wp_2fa_policy';
+	private const DISMISS       = 'sigil_dismiss_import_notice';
+	private const HIDDEN_OPTION = 'sigil_import_notice_hidden';
 
 	private static ?Import_Migration $instance = null;
 
@@ -35,6 +37,7 @@ final class Import_Migration {
 		add_action( 'sigil_settings_after', array( $this, 'render_sections' ) );
 		add_action( 'admin_post_' . self::ACTION, array( $this, 'handle_post' ) );
 		add_action( 'admin_post_' . self::POLICY_ACTION, array( $this, 'handle_policy_post' ) );
+		add_action( 'admin_post_' . self::DISMISS, array( $this, 'handle_dismiss' ) );
 	}
 
 	public function notice(): void {
@@ -49,17 +52,29 @@ final class Import_Migration {
 		}
 
 		foreach ( Import::sources() as $slug => $source ) {
-			if ( ! $source['class']::is_active() ) {
+			if ( ! $source['class']::is_active() || self::notice_hidden( $slug ) ) {
 				continue;
 			}
+
+			$dismiss = wp_nonce_url(
+				add_query_arg(
+					array(
+						'action' => self::DISMISS,
+						'source' => $slug,
+					),
+					admin_url( 'admin-post.php' )
+				),
+				self::DISMISS . '_' . $slug
+			);
 
 			echo '<div class="notice notice-warning"><p>';
 			/* translators: %s: name of the other two-factor plugin */
 			echo esc_html( sprintf( __( 'The %s plugin is active alongside Sigil. Import its users\' two-factor methods into Sigil, then deactivate it so there is one place sign-ins are checked.', 'sigil-2fa' ), $source['label'] ) );
 			if ( 'settings_page_sigil-2fa' !== $id ) {
 				/* translators: %s: name of the other two-factor plugin */
-				echo ' <a href="' . esc_url( Network::settings_url() . '#sigil-import-' . $slug ) . '">' . esc_html( sprintf( __( 'Import from %s', 'sigil-2fa' ), $source['label'] ) ) . '</a>';
+				echo ' <a href="' . esc_url( Network::settings_url() . '#sigil-import-' . $slug ) . '">' . esc_html( sprintf( __( 'Import from %s', 'sigil-2fa' ), $source['label'] ) ) . '</a> |';
 			}
+			echo ' <a href="' . esc_url( $dismiss ) . '">' . esc_html__( 'Dismiss', 'sigil-2fa' ) . '</a>';
 			echo '</p></div>';
 		}
 	}
@@ -101,6 +116,9 @@ final class Import_Migration {
 
 		$report = Import::run( $sources[ $slug ]['class'], null, $dry_run );
 		Import::remember_report( $slug, get_current_user_id(), $report, $dry_run );
+		if ( ! $dry_run ) {
+			self::hide_notice( $slug );
+		}
 
 		wp_safe_redirect( Network::settings_url() . '#sigil-import-' . $slug );
 		exit;
@@ -117,6 +135,39 @@ final class Import_Migration {
 
 		wp_safe_redirect( add_query_arg( 'updated', '1', Network::settings_url() ) . '#sigil-import-wp-2fa' );
 		exit;
+	}
+
+	public function handle_dismiss(): void {
+		if ( ! current_user_can( Network::manage_capability() ) ) {
+			wp_die( esc_html__( 'You do not have permission to change these settings.', 'sigil-2fa' ), '', array( 'response' => 403 ) );
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- the nonce is per source, checked straight after.
+		$slug = isset( $_GET['source'] ) ? sanitize_key( wp_unslash( $_GET['source'] ) ) : '';
+		if ( ! isset( Import::sources()[ $slug ] ) ) {
+			wp_die( esc_html__( 'Unknown import source.', 'sigil-2fa' ), '', array( 'response' => 400 ) );
+		}
+
+		check_admin_referer( self::DISMISS . '_' . $slug );
+		self::hide_notice( $slug );
+
+		$redirect = wp_get_referer();
+		wp_safe_redirect( is_string( $redirect ) && '' !== $redirect ? $redirect : admin_url() );
+		exit;
+	}
+
+	public static function notice_hidden( string $slug ): bool {
+		$hidden = Network::get_option( self::HIDDEN_OPTION, array() );
+		return is_array( $hidden ) && ! empty( $hidden[ $slug ] );
+	}
+
+	public static function hide_notice( string $slug ): void {
+		$hidden = Network::get_option( self::HIDDEN_OPTION, array() );
+		if ( ! is_array( $hidden ) ) {
+			$hidden = array();
+		}
+		$hidden[ $slug ] = true;
+		Network::update_option( self::HIDDEN_OPTION, $hidden );
 	}
 
 	public static function action(): string {
