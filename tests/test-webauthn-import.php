@@ -85,6 +85,7 @@ class Test_WebAuthn_Import extends WP_UnitTestCase {
 	}
 
 	public function test_passkey_carries_over_and_signs_in(): void {
+		$this->skip_without_passkeys();
 		list( $uid, $credential_id, $private ) = $this->webauthn_user( array( 'TwoFactor_Provider_WebAuthn' ), 7 );
 
 		$dry = Two_Factor_Import::run( array( $uid ), true );
@@ -112,6 +113,7 @@ class Test_WebAuthn_Import extends WP_UnitTestCase {
 	}
 
 	public function test_second_run_reports_passkey_already_there(): void {
+		$this->skip_without_passkeys();
 		list( $uid ) = $this->webauthn_user( array( 'TwoFactor_Provider_WebAuthn' ) );
 		Two_Factor_Import::import_user( $uid, false );
 

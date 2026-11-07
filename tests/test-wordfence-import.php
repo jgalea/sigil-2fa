@@ -153,6 +153,7 @@ class Test_Wordfence_Import extends WP_UnitTestCase {
 	}
 
 	public function test_passkey_carries_over_and_signs_in(): void {
+		$this->skip_without_passkeys();
 		$uid                          = $this->wf_totp_user( array( '0123 4567 89ab cdef' ) );
 		list( $credential_id, $private ) = $this->wf_passkey( $uid, Providers\Passkey::rp_id() );
 

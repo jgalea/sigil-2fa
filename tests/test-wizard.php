@@ -122,12 +122,15 @@ class Test_Wizard extends WP_UnitTestCase {
 		$admin = $this->admin();
 		$this->enrol_authenticator( $admin );
 
+		$render = new ReflectionMethod( \Sigil\Wizard::class, 'render_codes' );
+		$render->setAccessible( true );
+
 		ob_start();
-		( new ReflectionMethod( \Sigil\Wizard::class, 'render_codes' ) )->invoke( \Sigil\Wizard::instance(), $admin );
+		$render->invoke( \Sigil\Wizard::instance(), $admin );
 		$first = (string) ob_get_clean();
 
 		ob_start();
-		( new ReflectionMethod( \Sigil\Wizard::class, 'render_codes' ) )->invoke( \Sigil\Wizard::instance(), $admin );
+		$render->invoke( \Sigil\Wizard::instance(), $admin );
 		$second = (string) ob_get_clean();
 
 		$this->assertSame( 10, substr_count( $first, '<li><code>' ) );

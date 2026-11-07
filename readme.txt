@@ -4,7 +4,7 @@ Tags: two-factor, 2fa, passkeys, authentication, security
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.5.4
+Stable tag: 0.5.5
 License: GPL-3.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -123,6 +123,10 @@ Yes. Sigil imports from Two Factor (including passkeys from the WebAuthn Provide
 Yes. Settings → Sigil lets you pick exactly which roles are required, and set a grace period so people are prompted to enrol rather than locked out immediately.
 
 == Changelog ==
+
+= 0.5.5 =
+* New: an All users option requires two-factor for every role, including roles added later.
+* Improved: the notice about another two-factor plugin can be dismissed, and goes away once its users are imported.
 
 = 0.5.4 =
 * New: the Passkey tab lists each passkey by name, with when it was added and last used, and lets you remove one without removing the rest.
