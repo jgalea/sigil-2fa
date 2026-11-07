@@ -18,6 +18,7 @@ class Test_Import_Notice extends WP_UnitTestCase {
 			grant_super_admin( $admin );
 		}
 		wp_set_current_user( $admin );
+		update_user_meta( $admin, 'wp_2fa_enabled_methods', 'totp' );
 		set_current_screen( 'dashboard' );
 		\Sigil\Network::delete_option( 'sigil_import_notice_hidden' );
 	}
@@ -34,6 +35,12 @@ class Test_Import_Notice extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'WP 2FA plugin is active alongside Sigil', $html );
 		$this->assertStringContainsString( 'action=sigil_dismiss_import_notice', $html );
 		$this->assertStringContainsString( 'source=wp-2fa', $html );
+	}
+
+	public function test_no_notice_when_the_active_plugin_has_no_two_factor_users(): void {
+		delete_metadata( 'user', 0, 'wp_2fa_enabled_methods', '', true );
+
+		$this->assertStringNotContainsString( 'WP 2FA plugin is active alongside Sigil', $this->notice_html() );
 	}
 
 	public function test_notice_stays_gone_once_hidden(): void {

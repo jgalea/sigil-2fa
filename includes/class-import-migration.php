@@ -52,7 +52,7 @@ final class Import_Migration {
 		}
 
 		foreach ( Import::sources() as $slug => $source ) {
-			if ( ! $source['class']::is_active() || self::notice_hidden( $slug ) ) {
+			if ( ! $source['class']::is_active() || self::notice_hidden( $slug ) || ! $source['class']::has_data() ) {
 				continue;
 			}
 
