@@ -1,0 +1,72 @@
+.sigil-notice {
+	--sigil-accent: oklch(0.53 0.09 210);
+	--sigil-tint: color-mix(in oklch, var(--sigil-accent) 8%, white);
+	--sigil-ink: oklch(0.24 0 none);
+	--sigil-text: oklch(0.3 0 none);
+
+	display: flex;
+	gap: 20px;
+	padding: 0;
+	padding-inline-end: 38px;
+	background: #fff;
+	border: 1px solid oklch(0.84 0 none);
+	border-inline-start: 0;
+	box-shadow: none;
+}
+
+.sigil-notice__icon {
+	flex: none;
+	display: flex;
+	justify-content: center;
+	inline-size: 44px;
+	padding: 22px 12px 12px;
+	color: var(--sigil-accent);
+	background: var(--sigil-tint);
+	border-inline-start: 5px solid var(--sigil-accent);
+}
+
+.sigil-notice__body {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	min-inline-size: 0;
+	padding-block: 20px;
+}
+
+.sigil-notice .sigil-notice__title {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 1.4;
+	color: var(--sigil-ink);
+}
+
+.sigil-notice .sigil-notice__body p {
+	margin: 0;
+	padding: 0;
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--sigil-text);
+}
+
+.sigil-notice .sigil-notice__actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 16px;
+}
+
+.sigil-notice .sigil-notice__actions .button-link {
+	color: var(--sigil-text);
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.sigil-notice .sigil-notice__actions .button-link:hover {
+		color: var(--sigil-ink);
+	}
+}
+
+.sigil-notice .notice-dismiss {
+	inset-block-start: 8px;
+	inset-inline-end: 8px;
+}
