@@ -69,8 +69,8 @@ final class Credentials {
 		// wpdb refuses to insert raw bytes into this column, and an authenticator's
 		// handle is whatever bytes the other plugin generated.
 		if ( '' !== $user_handle ) {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- plugin-owned table name from Schema::table(), value is prepared
-			$wpdb->query( $wpdb->prepare( 'UPDATE ' . Schema::table() . ' SET user_handle = UNHEX(%s) WHERE id = %d', bin2hex( $user_handle ), $id ) );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$wpdb->query( $wpdb->prepare( 'UPDATE %i SET user_handle = UNHEX(%s) WHERE id = %d', Schema::table(), bin2hex( $user_handle ), $id ) );
 		}
 
 		return $id;

@@ -270,7 +270,7 @@ final class Password_Limit {
 		$prior   = $wpdb->suppress_errors( true );
 		// The charset and collation come from the server's own column
 		// definition and are checked to be plain identifiers in collation().
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, PluginCheck.Security.DirectDB.UnescapedDBParameter
 		$weight = $wpdb->get_var( $wpdb->prepare( "SELECT HEX(WEIGHT_STRING(CONVERT(%s USING {$charset}) COLLATE {$collation}))", $name ) );
 		$wpdb->suppress_errors( $prior );
 
