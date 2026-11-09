@@ -18,7 +18,8 @@
 	flex: none;
 	display: flex;
 	justify-content: center;
-	inline-size: 44px;
+	box-sizing: content-box;
+	inline-size: 24px;
 	padding: 22px 12px 12px;
 	color: var(--sigil-accent);
 	background: var(--sigil-tint);
@@ -69,4 +70,10 @@
 .sigil-notice .notice-dismiss {
 	inset-block-start: 8px;
 	inset-inline-end: 8px;
+}
+
+.sigil-notice__icon svg {
+	flex: none;
+	inline-size: 24px;
+	block-size: 24px;
 }
