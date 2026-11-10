@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: Sigil
+ * Plugin Name: Sigil – Passkeys and Two-Factor Authentication
  * Description: Two-factor authentication for WordPress logins: passkeys, authenticator apps, backup codes and email codes, with per-role enforcement, multisite support and account recovery.
  * Version: 0.5.6
  * Requires at least: 6.9
