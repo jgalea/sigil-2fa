@@ -1,4 +1,4 @@
-=== Sigil – Passkeys and Two-Factor Authentication ===
+=== Sigil ===
 Contributors: jeangalea
 Tags: two-factor, 2fa, passkeys, authentication, security
 Requires at least: 6.9
