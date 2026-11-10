@@ -144,7 +144,7 @@ final class Trusted_Devices {
 		if ( $skip || ! $user instanceof \WP_User ) {
 			return $skip;
 		}
-		$raw = isset( $_COOKIE[ self::COOKIE ] ) ? (string) $_COOKIE[ self::COOKIE ] : '';
+		$raw = isset( $_COOKIE[ self::COOKIE ] ) ? sanitize_text_field( wp_unslash( $_COOKIE[ self::COOKIE ] ) ) : '';
 		if ( ! $this->token_is_valid( $user->ID, $raw ) ) {
 			return $skip;
 		}
@@ -180,7 +180,7 @@ final class Trusted_Devices {
 			return $user;
 		}
 
-		$raw = isset( $_COOKIE[ self::COOKIE ] ) ? (string) $_COOKIE[ self::COOKIE ] : '';
+		$raw = isset( $_COOKIE[ self::COOKIE ] ) ? sanitize_text_field( wp_unslash( $_COOKIE[ self::COOKIE ] ) ) : '';
 		if ( $this->token_is_valid( (int) $user->ID, $raw ) ) {
 			Login_Guard::grant( (int) $user->ID );
 		}
@@ -293,7 +293,7 @@ final class Trusted_Devices {
 	 * Whether this request carries a live trusted-device token for the account.
 	 */
 	public function trusts_request( int $user_id ): bool {
-		$raw = isset( $_COOKIE[ self::COOKIE ] ) ? (string) $_COOKIE[ self::COOKIE ] : '';
+		$raw = isset( $_COOKIE[ self::COOKIE ] ) ? sanitize_text_field( wp_unslash( $_COOKIE[ self::COOKIE ] ) ) : '';
 
 		return $this->token_is_valid( $user_id, $raw );
 	}
@@ -345,7 +345,7 @@ final class Trusted_Devices {
 	}
 
 	private function ua_hash(): string {
-		$ua = isset( $_SERVER['HTTP_USER_AGENT'] ) ? (string) $_SERVER['HTTP_USER_AGENT'] : '';
+		$ua = isset( $_SERVER['HTTP_USER_AGENT'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ) : '';
 		return hash( 'sha256', $ua );
 	}
 }

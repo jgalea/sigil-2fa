@@ -185,7 +185,7 @@ final class Passwordless {
 	}
 
 	private static function binding_from_cookie(): string {
-		$raw = isset( $_COOKIE[ self::BINDING_COOKIE ] ) && is_string( $_COOKIE[ self::BINDING_COOKIE ] ) ? $_COOKIE[ self::BINDING_COOKIE ] : '';
+		$raw = isset( $_COOKIE[ self::BINDING_COOKIE ] ) && is_string( $_COOKIE[ self::BINDING_COOKIE ] ) ? sanitize_text_field( wp_unslash( $_COOKIE[ self::BINDING_COOKIE ] ) ) : '';
 
 		return preg_match( '/^[a-f0-9]{64}$/', $raw ) ? $raw : '';
 	}
@@ -218,7 +218,7 @@ final class Passwordless {
 	 * did not come from a page at all, which is not the attack this stops.
 	 */
 	private static function origin_allowed(): bool {
-		$origin = isset( $_SERVER['HTTP_ORIGIN'] ) && is_string( $_SERVER['HTTP_ORIGIN'] ) ? trim( wp_unslash( $_SERVER['HTTP_ORIGIN'] ) ) : '';
+		$origin = isset( $_SERVER['HTTP_ORIGIN'] ) && is_string( $_SERVER['HTTP_ORIGIN'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_ORIGIN'] ) ) : '';
 		if ( '' === $origin ) {
 			return true;
 		}

@@ -54,8 +54,14 @@ final class Wordfence_Import {
 			// Wordfence's own table under the network prefix; nothing user-supplied.
 			// Joined to the users table because rows can outlive an account that
 			// was deleted while Wordfence was inactive.
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
-			foreach ( (array) $wpdb->get_col( "SELECT DISTINCT w.user_id FROM {$table} AS w INNER JOIN {$wpdb->users} AS u ON u.ID = w.user_id" . ( $limit > 0 ? ' LIMIT ' . (int) $limit : '' ) ) as $id ) {
+			if ( $limit > 0 ) {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+				$found = $wpdb->get_col( $wpdb->prepare( 'SELECT DISTINCT w.user_id FROM %i AS w INNER JOIN %i AS u ON u.ID = w.user_id LIMIT %d', $table, $wpdb->users, $limit ) );
+			} else {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+				$found = $wpdb->get_col( $wpdb->prepare( 'SELECT DISTINCT w.user_id FROM %i AS w INNER JOIN %i AS u ON u.ID = w.user_id', $table, $wpdb->users ) );
+			}
+			foreach ( (array) $found as $id ) {
 				$ids[ (int) $id ] = true;
 			}
 		}

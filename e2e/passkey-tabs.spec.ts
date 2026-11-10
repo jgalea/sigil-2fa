@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { resetTwoFactor, login, logout, addVirtualAuthenticator, confirmIdentity } from './helpers';
+import { resetTwoFactor, login, logout, addVirtualAuthenticator, confirmIdentity, expectPasskeyRegistered } from './helpers';
 
 test.beforeEach(() => resetTwoFactor());
 
@@ -13,7 +13,7 @@ test('a passkey challenge survives a later render of the same screen', async ({ 
 	await confirmIdentity(page);
 	await page.fill('#sigil-passkey-label', 'Virtual key');
 	await page.locator('.sigil-passkey-register').click();
-	await expect(page.locator('.sigil-passkey-status')).toContainText(/registered/i);
+	await expectPasskeyRegistered(page);
 
 	await logout(page);
 	await login(page);
