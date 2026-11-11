@@ -27,6 +27,7 @@ final class Enforcement {
 		add_action( 'admin_notices', array( $this, 'grace_notice' ) );
 		add_action( 'admin_notices', array( $this, 'clock_notice' ) );
 		add_action( 'admin_notices', array( $this, 'low_codes_notice' ) );
+		add_action( 'admin_notices', array( $this, 'unreadable_secret_notice' ) );
 		add_action( 'admin_post_sigil_dismiss_grace_notice', array( $this, 'dismiss_grace_notice' ) );
 	}
 
@@ -99,6 +100,21 @@ final class Enforcement {
 				human_time_diff( 0, abs( $drift ) )
 			)
 		);
+		echo '</p></div>';
+	}
+
+	/**
+	 * Secrets are encrypted with a key derived from the WordPress salts, so
+	 * rotating the salts leaves every authenticator unreadable and every code
+	 * looks wrong. Say so, since nothing else points at the salts.
+	 */
+	public function unreadable_secret_notice(): void {
+		if ( ! current_user_can( Network::manage_capability() ) || false === get_transient( Providers\Totp::UNREADABLE_KEY ) ) {
+			return;
+		}
+
+		echo '<div class="notice notice-error"><p>';
+		echo esc_html__( 'Sigil could not read an authenticator secret it needed. This usually follows a change to the WordPress salts in wp-config.php. Restore the previous salts, or ask the affected people to set up their authenticator again. Defining SIGIL_KEY in wp-config.php keeps secrets readable through future salt changes.', 'sigil-2fa' );
 		echo '</p></div>';
 	}
 

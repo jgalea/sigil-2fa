@@ -269,6 +269,10 @@ $bad_cap    = isset( $bad_cap ) ? (string) $bad_cap : '';
 			</tr>
 		</table>
 
+		<p class="description">
+			<?php echo esc_html__( 'Authenticator secrets are encrypted with a key derived from your WordPress salts. Define SIGIL_KEY in wp-config.php to keep them readable when the salts are rotated.', 'sigil-2fa' ); ?>
+		</p>
+
 		<?php submit_button( __( 'Save settings', 'sigil-2fa' ) ); ?>
 	</form>
 

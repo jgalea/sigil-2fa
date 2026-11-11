@@ -25,6 +25,7 @@ final class TOTP implements Provider {
 	// purely to tell "wrong code" apart from "wrong clock". 40 steps is 20 minutes.
 	private const DRIFT_SEARCH = 40;
 	private const DRIFT_KEY    = 'sigil_totp_drift';
+	public const UNREADABLE_KEY = 'sigil_totp_unreadable';
 
 	public function id(): string {
 		return 'totp';
@@ -157,6 +158,7 @@ final class TOTP implements Provider {
 
 		$secret = Crypto::decrypt( $ciphertext );
 		if ( '' === $secret ) {
+			set_transient( self::UNREADABLE_KEY, 1, DAY_IN_SECONDS );
 			return false;
 		}
 
