@@ -218,15 +218,15 @@ final class Users_Column {
 		);
 
 		if ( 'set_up' === $filter ) {
-			return array( 'meta_query' => array( $has_methods ) );
+			return array( 'meta_query' => array( $has_methods ) ); // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- admin-only users list filter.
 		}
 
 		if ( 'not_set_up' === $filter ) {
-			return array( 'meta_query' => array( $no_methods ) );
+			return array( 'meta_query' => array( $no_methods ) ); // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- admin-only users list filter.
 		}
 
 		return array(
-			'meta_query' => array(
+			'meta_query' => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- admin-only users list filter.
 				$no_methods,
 				array(
 					'key'     => Policy::DEADLINE_META,

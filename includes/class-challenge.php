@@ -131,7 +131,7 @@ final class Challenge {
 	public static function final_redirect( string $requested, \WP_User $user ): string {
 		$redirect_to = '' === $requested ? admin_url() : $requested;
 
-		return (string) apply_filters( 'login_redirect', $redirect_to, $requested, $user );
+		return (string) apply_filters( 'login_redirect', $redirect_to, $requested, $user ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- core hook.
 	}
 
 	/**
