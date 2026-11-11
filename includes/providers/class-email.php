@@ -136,6 +136,15 @@ final class Email implements Provider {
 		delete_user_meta( $user_id, self::DEBUG_META );
 	}
 
+	/**
+	 * Seconds until another code may be sent; 0 when one may go now.
+	 */
+	public function retry_after( int $user_id ): int {
+		$until = get_transient( self::COOLDOWN_KEY . $user_id );
+
+		return is_numeric( $until ) ? max( 0, (int) $until - time() ) : 0;
+	}
+
 	public function send_code( int $user_id ): bool {
 		if ( $user_id <= 0 ) {
 			return false;
@@ -243,7 +252,7 @@ final class Email implements Provider {
 		}
 
 		set_transient( self::TRANSIENT_KEY . $user_id, $this->hash_code( $code ), self::CODE_TTL );
-		set_transient( self::COOLDOWN_KEY . $user_id, 1, self::RESEND_COOLDOWN );
+		set_transient( self::COOLDOWN_KEY . $user_id, time() + self::RESEND_COOLDOWN, self::RESEND_COOLDOWN );
 
 		// Test-suite-only plaintext mirror. WP_TESTS_DOMAIN is defined by the WordPress
 		// test bootstrap and by nothing else. WP_DEBUG deliberately does NOT gate this:

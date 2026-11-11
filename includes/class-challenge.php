@@ -134,7 +134,7 @@ final class Challenge {
 		// post an attacker's own token and code through a visitor's browser and
 		// sign the visitor in as the attacker. The cookie it was started with is
 		// one other sites cannot send.
-		if ( '' === $payload['bind'] || ! hash_equals( $payload['bind'], hash( 'sha256', self::binding_from_cookie() ) ) ) {
+		if ( ! self::is_bound( $payload ) ) {
 			return new \WP_Error( 'sigil_invalid_token', __( 'This verification session has expired. Please log in again.', 'sigil-2fa' ) );
 		}
 
@@ -188,6 +188,42 @@ final class Challenge {
 		// The factor is verified and the token spent, so this request may now
 		// issue the session the password step was refused.
 		Login_Guard::grant( $user_id );
+
+		return true;
+	}
+
+	/**
+	 * Send a fresh email code for a live token.
+	 *
+	 * @return true|\WP_Error
+	 */
+	public static function resend( string $token ) {
+		$payload = self::payload( $token );
+		if ( null === $payload || ! self::is_bound( $payload ) ) {
+			return new \WP_Error( 'sigil_invalid_token', __( 'This verification session has expired. Please log in again.', 'sigil-2fa' ) );
+		}
+
+		$email = Providers::instance()->get( 'email' );
+		if ( ! $email instanceof Providers\Email || ! $email->is_enrolled( $payload['user_id'] ) ) {
+			return new \WP_Error( 'sigil_invalid_method', __( 'Email codes are not set up for this account.', 'sigil-2fa' ) );
+		}
+
+		$wait = $email->retry_after( $payload['user_id'] );
+		if ( $wait > 0 ) {
+			return new \WP_Error(
+				'sigil_resend_wait',
+				sprintf(
+					/* translators: %d: seconds */
+					_n( 'Please wait %d second before asking for another code.', 'Please wait %d seconds before asking for another code.', $wait, 'sigil-2fa' ),
+					$wait
+				),
+				array( 'retry_after' => $wait )
+			);
+		}
+
+		if ( ! $email->send_code( $payload['user_id'] ) ) {
+			return new \WP_Error( 'sigil_send_failed', __( 'The code could not be sent. Please try again.', 'sigil-2fa' ) );
+		}
 
 		return true;
 	}
@@ -318,6 +354,22 @@ final class Challenge {
 
 		$error = null;
 
+		if ( isset( $_POST['sigil_resend'] ) ) {
+			if ( ! isset( $_POST['sigil_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( (string) $_POST['sigil_nonce'] ) ), 'sigil_challenge' ) ) {
+				$this->render_screen( $token, $user, new \WP_Error( 'sigil_bad_nonce', __( 'Verification failed. Please try again.', 'sigil-2fa' ) ), 'email' );
+				exit;
+			}
+
+			$sent = self::resend( $token );
+			if ( is_wp_error( $sent ) ) {
+				$this->render_screen( $token, $user, $sent, 'email' );
+				exit;
+			}
+
+			$this->render_screen( $token, $user, null, 'email', __( 'A new code is on its way.', 'sigil-2fa' ) );
+			exit;
+		}
+
 		if ( isset( $_POST['sigil_authenticate'] ) ) {
 			if ( ! isset( $_POST['sigil_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( (string) $_POST['sigil_nonce'] ) ), 'sigil_challenge' ) ) {
 				$error = new \WP_Error( 'sigil_bad_nonce', __( 'Verification failed. Please try again.', 'sigil-2fa' ) );
@@ -382,6 +434,13 @@ final class Challenge {
 			'redirect_to' => isset( $raw['redirect_to'] ) && is_string( $raw['redirect_to'] ) ? $raw['redirect_to'] : '',
 			'bind'        => isset( $raw['bind'] ) && is_string( $raw['bind'] ) ? $raw['bind'] : '',
 		);
+	}
+
+	/**
+	 * @param array{bind: string} $payload
+	 */
+	private static function is_bound( array $payload ): bool {
+		return '' !== $payload['bind'] && hash_equals( $payload['bind'], hash( 'sha256', self::binding_from_cookie() ) );
 	}
 
 	private static function binding_from_cookie(): string {
@@ -472,7 +531,7 @@ final class Challenge {
 	/**
 	 * @param \WP_Error|null $error
 	 */
-	private function render_screen( string $token, \WP_User $user, $error, string $provider_id ): void {
+	private function render_screen( string $token, \WP_User $user, $error, string $provider_id, string $notice = '' ): void {
 		$enrolled = Providers::instance()->enrolled_for( $user->ID );
 		if ( [] === $enrolled ) {
 			wp_safe_redirect( wp_login_url() );
@@ -523,7 +582,7 @@ final class Challenge {
 			add_filter( 'login_errors', $announce );
 			login_header(
 				$login_title,
-				'',
+				'' === $notice ? '' : '<p class="message">' . esc_html( $notice ) . '</p>',
 				$challenge_error instanceof \WP_Error ? $challenge_error : new \WP_Error()
 			);
 			remove_filter( 'login_errors', $announce );
@@ -558,6 +617,9 @@ final class Challenge {
 <body class="login no-js login-action-sigil wp-core-ui">
 	<div id="login">
 		<?php
+		if ( '' !== $notice ) {
+			echo '<p class="message" role="status">' . esc_html( $notice ) . '</p>';
+		}
 		if ( $challenge_error instanceof \WP_Error && $challenge_error->has_errors() ) {
 			echo '<div id="login_error" role="alert">' . wp_kses_post( $challenge_error->get_error_message() ) . '</div>';
 		}

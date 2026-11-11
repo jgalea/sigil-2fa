@@ -73,6 +73,36 @@ class Test_Challenge extends WP_UnitTestCase {
 		$this->assertSame( 'sigil_invalid_token', $again->get_error_code() );
 	}
 
+	public function test_a_new_email_code_can_be_asked_for_once_the_cooldown_passes(): void {
+		$user = self::factory()->user->create_and_get();
+		\Sigil\Store::set_method( $user->ID, 'email', array( 'enrolled_at' => 1 ) );
+		$tok = \Sigil\Challenge::start( $user, false );
+
+		$this->assertTrue( \Sigil\Challenge::resend( $tok ) );
+		$first = get_user_meta( $user->ID, '_sigil_email_debug_code', true );
+
+		$again = \Sigil\Challenge::resend( $tok );
+		$this->assertWPError( $again );
+		$this->assertSame( 'sigil_resend_wait', $again->get_error_code() );
+		$this->assertGreaterThan( 0, $again->get_error_data()['retry_after'] );
+
+		delete_transient( 'sigil_email_cd_' . $user->ID );
+		$this->assertTrue( \Sigil\Challenge::resend( $tok ) );
+		$this->assertTrue( ( new \Sigil\Providers\Email() )->validate( $user->ID, array( 'code' => get_user_meta( $user->ID, '_sigil_email_debug_code', true ) ) ) );
+		$this->assertNotSame( '', (string) $first );
+	}
+
+	public function test_a_new_code_is_not_sent_to_a_browser_that_did_not_start_the_login(): void {
+		$user = self::factory()->user->create_and_get();
+		\Sigil\Store::set_method( $user->ID, 'email', array( 'enrolled_at' => 1 ) );
+		$tok = \Sigil\Challenge::start( $user, false );
+
+		$_COOKIE['sigil_challenge'] = bin2hex( random_bytes( 32 ) );
+
+		$this->assertWPError( \Sigil\Challenge::resend( $tok ) );
+		$this->assertSame( '', (string) get_user_meta( $user->ID, '_sigil_email_debug_code', true ) );
+	}
+
 	public function test_spent_token_sends_a_signed_in_browser_on_not_back_to_login(): void {
 		$user = self::factory()->user->create_and_get();
 		wp_set_current_user( $user->ID );

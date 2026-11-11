@@ -173,6 +173,22 @@ final class REST {
 			)
 		);
 
+		register_rest_route(
+			self::NAMESPACE_V1,
+			'/challenge/send',
+			array(
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'send_challenge_code' ),
+				'permission_callback' => '__return_true',
+				'args'                => array(
+					'token' => array(
+						'type'     => 'string',
+						'required' => true,
+					),
+				),
+			)
+		);
+
 		// No session and no token: the passkey is the whole credential, and the
 		// account comes from whichever stored passkey the signature verifies
 		// against. GET mints a single-use challenge, POST spends it.
@@ -524,6 +540,29 @@ final class REST {
 				'redirect_to' => $context && '' !== $context['redirect_to'] ? $context['redirect_to'] : admin_url(),
 			)
 		);
+	}
+
+	/**
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public function send_challenge_code( \WP_REST_Request $request ) {
+		$sent = Challenge::resend( (string) $request['token'] );
+		if ( is_wp_error( $sent ) ) {
+			$status = array(
+				'sigil_resend_wait'    => 429,
+				'sigil_invalid_method' => 400,
+				'sigil_send_failed'    => 500,
+			);
+			$data   = $sent->get_error_data();
+
+			return new \WP_Error(
+				$sent->get_error_code(),
+				$sent->get_error_message(),
+				array_merge( is_array( $data ) ? $data : array(), array( 'status' => $status[ $sent->get_error_code() ] ?? 401 ) )
+			);
+		}
+
+		return rest_ensure_response( array( 'sent' => true ) );
 	}
 
 	/**

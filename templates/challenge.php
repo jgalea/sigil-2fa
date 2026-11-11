@@ -117,6 +117,15 @@ foreach ( $challenge_providers as $provider ) {
 		<?php endif; ?>
 	</form>
 
+	<?php if ( 'email' === $challenge_active->id() ) : ?>
+		<form method="post" action="<?php echo esc_url( $action_url ); ?>" class="sigil-challenge__methods">
+			<input type="hidden" name="sigil_token" value="<?php echo esc_attr( $challenge_token ); ?>" />
+			<input type="hidden" name="sigil_provider" value="email" />
+			<input type="hidden" name="sigil_nonce" value="<?php echo esc_attr( wp_create_nonce( 'sigil_challenge' ) ); ?>" />
+			<button type="submit" name="sigil_resend" value="1" class="sigil-challenge__method"><?php esc_html_e( 'Send a new code', 'sigil-2fa' ); ?></button>
+		</form>
+	<?php endif; ?>
+
 	<?php if ( array() !== $alternatives ) : ?>
 		<form method="post" action="<?php echo esc_url( $action_url ); ?>" class="sigil-challenge__methods" aria-label="<?php echo esc_attr( $sigil_say( 'methods', __( 'Verify another way:', 'sigil-2fa' ) ) ); ?>">
 			<input type="hidden" name="sigil_token" value="<?php echo esc_attr( $challenge_token ); ?>" />

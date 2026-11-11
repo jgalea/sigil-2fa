@@ -298,4 +298,19 @@ class Test_REST extends WP_UnitTestCase {
 		$response = $this->request( 'POST', '/sigil/v1/challenge', array( 'token' => $token, 'provider' => 'email', 'code' => $code ) );
 		$this->assertSame( 401, $response->get_status(), 'no cookie at all is refused too' );
 	}
+
+	public function test_the_rest_flow_can_ask_for_an_email_code(): void {
+		$user = self::factory()->user->create_and_get();
+		\Sigil\Store::set_method( $user->ID, 'email', array( 'enrolled_at' => 1 ) );
+		$token = \Sigil\Challenge::start( $user, false, '' );
+
+		$first = $this->request( 'POST', '/sigil/v1/challenge/send', array( 'token' => $token ) );
+		$this->assertSame( 200, $first->get_status() );
+		$this->assertNotSame( '', (string) get_user_meta( $user->ID, '_sigil_email_debug_code', true ) );
+
+		$second = $this->request( 'POST', '/sigil/v1/challenge/send', array( 'token' => $token ) );
+		$this->assertSame( 429, $second->get_status() );
+
+		$this->assertSame( 401, $this->request( 'POST', '/sigil/v1/challenge/send', array( 'token' => str_repeat( 'a', 64 ) ) )->get_status() );
+	}
 }
