@@ -65,7 +65,6 @@
 		url.searchParams.set('method', 'passkey');
 		url.searchParams.set('sigil_status', 'success');
 		url.searchParams.set('sigil_code', 'enrolled');
-		url.searchParams.delete('sigil_msg');
 		window.location.assign(url.href);
 	});
 

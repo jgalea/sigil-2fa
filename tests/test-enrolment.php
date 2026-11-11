@@ -24,4 +24,34 @@ class Test_Enrolment extends WP_UnitTestCase {
 		wp_set_current_user( $a );
 		$this->assertWPError( \Sigil\Enrolment::instance()->remove_method( $b, 'totp' ) );
 	}
+
+	// sigil_msg used to be read from the URL, so a crafted link could print its
+	// own wording inside a genuine 2FA screen.
+	public function test_notice_wording_is_not_taken_from_the_url(): void {
+		wp_set_current_user( self::factory()->user->create() );
+		$_GET = array( 'sigil_status' => 'error', 'sigil_code' => 'x', 'sigil_msg' => 'Call 555-0100 to verify your account.' );
+
+		$method = new ReflectionMethod( \Sigil\Enrolment::instance(), 'consume_notices' );
+		$method->setAccessible( true );
+		$notices = $method->invoke( \Sigil\Enrolment::instance() );
+		$_GET    = array();
+
+		$this->assertSame( '', $notices['message'] );
+	}
+
+	public function test_the_failure_reason_arrives_through_the_users_own_transient(): void {
+		$uid = self::factory()->user->create();
+		wp_set_current_user( $uid );
+		set_transient( 'sigil_msg_' . $uid, 'That code was wrong.', 60 );
+		$_GET = array( 'sigil_status' => 'error' );
+
+		$method = new ReflectionMethod( \Sigil\Enrolment::instance(), 'consume_notices' );
+		$method->setAccessible( true );
+		$first  = $method->invoke( \Sigil\Enrolment::instance() );
+		$second = $method->invoke( \Sigil\Enrolment::instance() );
+		$_GET   = array();
+
+		$this->assertSame( 'That code was wrong.', $first['message'] );
+		$this->assertSame( '', $second['message'], 'shown once' );
+	}
 }

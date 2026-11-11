@@ -166,13 +166,13 @@ class Test_Wizard extends WP_UnitTestCase {
 		$this->assertSame( \Sigil\Wizard::url( 2 ), $url );
 	}
 
-	public function test_a_failure_returns_to_the_step_with_the_reason(): void {
+	public function test_a_failure_returns_to_the_step_without_carrying_link_wording(): void {
 		$_POST['sigil_wizard'] = '1';
 		$from                  = add_query_arg(
 			array(
 				'sigil_status' => 'error',
 				'sigil_code'   => 'sigil_totp_invalid',
-				'sigil_msg'    => 'That code was wrong.',
+				'sigil_msg'    => 'Call 555-0100 to verify your account.',
 			),
 			admin_url( 'users.php?page=sigil-2fa-setup' )
 		);
@@ -180,7 +180,7 @@ class Test_Wizard extends WP_UnitTestCase {
 		$url = (string) apply_filters( 'sigil_enrol_redirect', $from, 1, 'error', 'sigil_totp_invalid', 'totp' );
 
 		$this->assertStringStartsWith( \Sigil\Wizard::url( 1 ), $url );
-		$this->assertStringContainsString( 'sigil_msg=That%20code%20was%20wrong.', $url );
+		$this->assertStringNotContainsString( 'sigil_msg', $url, 'wording from a link is never carried onto the screen' );
 	}
 
 	public function test_other_enrolment_forms_are_left_alone(): void {

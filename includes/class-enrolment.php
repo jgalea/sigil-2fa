@@ -789,14 +789,24 @@ final class Enrolment {
 		$type = isset( $_GET['sigil_status'] ) ? sanitize_key( wp_unslash( (string) $_GET['sigil_status'] ) ) : '';
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$code = isset( $_GET['sigil_code'] ) ? sanitize_key( wp_unslash( (string) $_GET['sigil_code'] ) ) : '';
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$message = isset( $_GET['sigil_msg'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['sigil_msg'] ) ) : '';
 
 		return array(
 			'type'    => $type,
 			'code'    => $code,
-			'message' => $message,
+			'message' => 'error' === $type ? self::take_message() : '',
 		);
+	}
+
+	/**
+	 * The failure reason travels in a short-lived per-user transient, not the
+	 * URL, so a crafted link can't put its own wording on a genuine 2FA screen.
+	 */
+	public static function take_message(): string {
+		$key     = 'sigil_msg_' . get_current_user_id();
+		$message = get_transient( $key );
+		delete_transient( $key );
+
+		return is_string( $message ) ? $message : '';
 	}
 
 	private function redirect_with_status( int $user_id, string $status, string $code, string $message = '', string $provider_id = '' ): void {
@@ -807,7 +817,9 @@ final class Enrolment {
 		);
 
 		if ( '' !== $message ) {
-			$args['sigil_msg'] = $message;
+			set_transient( 'sigil_msg_' . $current, $message, MINUTE_IN_SECONDS );
+		} else {
+			delete_transient( 'sigil_msg_' . $current );
 		}
 		if ( '' !== $provider_id ) {
 			$args['method'] = $provider_id;

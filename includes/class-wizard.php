@@ -195,9 +195,9 @@ final class Wizard {
 			return self::url( 2 );
 		}
 
-		// The handler's own message is what says why it failed, so carry it over.
+		// The status and code say that it failed; the reason waits in a transient.
 		wp_parse_str( (string) wp_parse_url( (string) $url, PHP_URL_QUERY ), $args );
-		$keep = array_intersect_key( $args, array_flip( array( 'sigil_status', 'sigil_code', 'sigil_msg' ) ) );
+		$keep = array_intersect_key( $args, array_flip( array( 'sigil_status', 'sigil_code' ) ) );
 
 		return add_query_arg( array_map( 'rawurlencode', $keep ), self::url( $step ) );
 	}
@@ -243,7 +243,7 @@ final class Wizard {
 	private function render_notices(): void {
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- display-only flags set by our own redirects.
 		$status  = isset( $_GET['sigil_status'] ) ? sanitize_key( wp_unslash( (string) $_GET['sigil_status'] ) ) : '';
-		$message = isset( $_GET['sigil_msg'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['sigil_msg'] ) ) : '';
+		$message = 'error' === $status ? Enrolment::take_message() : '';
 		$lockout = isset( $_GET['lockout'] ) && '1' === sanitize_key( wp_unslash( (string) $_GET['lockout'] ) );
 		// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
