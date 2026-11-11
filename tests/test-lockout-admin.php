@@ -48,7 +48,11 @@ class Test_Lockout_Admin extends WP_UnitTestCase {
 
 	public function test_only_a_locked_account_gets_an_unlock_action_and_only_for_an_editor(): void {
 		$user = $this->locked_user();
-		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+		$admin = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		if ( is_multisite() ) {
+			grant_super_admin( $admin );
+		}
+		wp_set_current_user( $admin );
 
 		$actions = \Sigil\Users_Column::instance()->row_actions( array(), $user );
 		$this->assertArrayHasKey( 'sigil_unlock', $actions );
@@ -61,7 +65,11 @@ class Test_Lockout_Admin extends WP_UnitTestCase {
 
 	public function test_unlocking_reopens_password_and_code_sign_in(): void {
 		$user = $this->locked_user();
-		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+		$admin = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		if ( is_multisite() ) {
+			grant_super_admin( $admin );
+		}
+		wp_set_current_user( $admin );
 		$_GET['user_id']     = (string) $user->ID;
 		$_REQUEST['_wpnonce'] = wp_create_nonce( 'sigil_unlock_' . $user->ID );
 
