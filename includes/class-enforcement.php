@@ -26,6 +26,7 @@ final class Enforcement {
 		add_action( 'template_redirect', array( $this, 'maybe_redirect' ) );
 		add_action( 'admin_notices', array( $this, 'grace_notice' ) );
 		add_action( 'admin_notices', array( $this, 'clock_notice' ) );
+		add_action( 'admin_notices', array( $this, 'low_codes_notice' ) );
 		add_action( 'admin_post_sigil_dismiss_grace_notice', array( $this, 'dismiss_grace_notice' ) );
 	}
 
@@ -98,6 +99,36 @@ final class Enforcement {
 				human_time_diff( 0, abs( $drift ) )
 			)
 		);
+		echo '</p></div>';
+	}
+
+	public function low_codes_notice(): void {
+		if ( ! is_user_logged_in() ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- routing check only.
+		if ( isset( $_GET['page'] ) && self::SETUP_PAGE === sanitize_key( wp_unslash( (string) $_GET['page'] ) ) ) {
+			return;
+		}
+
+		$user_id = get_current_user_id();
+		$backup  = Providers::instance()->get( 'backup' );
+		if ( ! $backup instanceof Providers\Backup_Codes || ! $backup->is_low( $user_id ) ) {
+			return;
+		}
+
+		$left = $backup->remaining( $user_id );
+
+		echo '<div class="notice notice-warning"><p>';
+		echo esc_html(
+			sprintf(
+				/* translators: %d: number of unused backup codes */
+				_n( 'You have %d backup code left.', 'You have %d backup codes left.', $left, 'sigil-2fa' ),
+				$left
+			)
+		);
+		echo ' <a href="' . esc_url( add_query_arg( 'method', 'backup', self::setup_url() ) ) . '">' . esc_html__( 'Generate new backup codes', 'sigil-2fa' ) . '</a>';
 		echo '</p></div>';
 	}
 
