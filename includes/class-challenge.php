@@ -469,7 +469,10 @@ final class Challenge {
 	 * @param array{bind: string} $payload
 	 */
 	private static function is_bound( array $payload ): bool {
-		return '' !== $payload['bind'] && hash_equals( $payload['bind'], hash( 'sha256', self::binding_from_cookie() ) );
+		// A sign-in already waiting at the second step when the plugin was
+		// updated has no binding to check. Letting it finish once beats locking
+		// out someone halfway through; it expires within minutes either way.
+		return '' === $payload['bind'] || hash_equals( $payload['bind'], hash( 'sha256', self::binding_from_cookie() ) );
 	}
 
 	private static function binding_from_cookie(): string {
@@ -490,7 +493,7 @@ final class Challenge {
 			$binding,
 			array(
 				'expires'  => time() + self::BINDING_TTL,
-				'path'     => defined( 'COOKIEPATH' ) && '' !== COOKIEPATH ? COOKIEPATH : '/',
+				'path'     => '/',
 				'domain'   => defined( 'COOKIE_DOMAIN' ) && COOKIE_DOMAIN ? COOKIE_DOMAIN : '',
 				'secure'   => is_ssl() || 'https' === wp_parse_url( home_url(), PHP_URL_SCHEME ),
 				'httponly' => true,
