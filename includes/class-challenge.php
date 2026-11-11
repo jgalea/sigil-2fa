@@ -347,8 +347,6 @@ final class Challenge {
 		$token = '';
 		if ( isset( $_POST['sigil_token'] ) ) {
 			$token = sanitize_text_field( wp_unslash( (string) $_POST['sigil_token'] ) );
-		} elseif ( isset( $_GET['sigil_token'] ) ) {
-			$token = sanitize_text_field( wp_unslash( (string) $_GET['sigil_token'] ) );
 		}
 
 		$user = '' !== $token ? self::user_for( $token ) : null;

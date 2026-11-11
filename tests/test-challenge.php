@@ -140,6 +140,29 @@ class Test_Challenge extends WP_UnitTestCase {
 		$this->assertSame( wp_login_url(), $this->redirect_for_spent_token() );
 	}
 
+	// A token in a query string lands in access logs and Referer headers.
+	public function test_a_token_in_the_url_is_not_accepted(): void {
+		$user = self::factory()->user->create_and_get();
+		\Sigil\Store::set_method( $user->ID, 'backup', array( 'hashes' => array() ) );
+		$tok = \Sigil\Challenge::start( $user, false );
+
+		$stop = static function ( $location ) {
+			throw new RuntimeException( (string) $location );
+		};
+		add_filter( 'wp_redirect', $stop );
+		$_GET = array( 'sigil_token' => $tok );
+
+		try {
+			\Sigil\Challenge::instance()->handle_challenge_request();
+			$this->fail( 'expected the login form redirect, not a challenge screen' );
+		} catch ( RuntimeException $e ) {
+			$this->assertSame( wp_login_url(), $e->getMessage() );
+		} finally {
+			remove_filter( 'wp_redirect', $stop );
+			$_GET = array();
+		}
+	}
+
 	private function redirect_for_spent_token(): string {
 		$stop = static function ( $location ) {
 			throw new RuntimeException( (string) $location );
