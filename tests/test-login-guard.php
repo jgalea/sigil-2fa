@@ -98,6 +98,22 @@ class Test_Login_Guard extends WP_UnitTestCase {
 		$this->assertSame( array(), WP_Session_Tokens::get_instance( (int) $user->ID )->get_all(), 'the stored session is gone too' );
 	}
 
+	public function test_a_held_cookie_announces_which_account_it_was_for(): void {
+		$user = $this->enrolled_user();
+		$this->as_ajax( 'popup_login' );
+		$held = array();
+		add_action(
+			'sigil_session_held',
+			static function ( $user_id ) use ( &$held ) {
+				$held[] = $user_id;
+			}
+		);
+
+		wp_set_auth_cookie( (int) $user->ID );
+
+		$this->assertSame( array( (int) $user->ID ), $held );
+	}
+
 	private function with_wordfence_check(): void {
 		add_action( 'wp_ajax_nopriv_wordfence_ls_authenticate', '__return_null' );
 	}

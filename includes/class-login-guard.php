@@ -264,6 +264,13 @@ final class Login_Guard {
 			\WP_Session_Tokens::get_instance( $user_id )->destroy( $token );
 		}
 
+		/**
+		 * Fires when a sign-in was stopped because it skipped the second factor.
+		 *
+		 * @param int $user_id The account that was signing in.
+		 */
+		do_action( 'sigil_session_held', $user_id );
+
 		return false;
 	}
 

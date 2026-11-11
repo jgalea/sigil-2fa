@@ -59,6 +59,12 @@ Backup codes are shown at first enrolment. An administrator can reset another us
 
 Application passwords authenticate the REST API and XML-RPC, and 2FA does not apply to them. Sigil says so on its settings screen and lets you disable them per role.
 
+## Integrating
+
+A sign-in that sets the auth cookie without `wp_signon()` (social login, magic links) is held for accounts with a second factor, and the `sigil_session_held` action fires with the user ID. Once your code has verified the person itself, call `\Sigil\Login_Guard::grant( $user_id )` before `wp_set_auth_cookie()`.
+
+Changes to the password and email of your own account are confirmed through `\Sigil\Step_Up::allows( $user_id )`. Core, the REST users endpoint and WooCommerce are covered; a front-end account form from another plugin can call it before `wp_update_user()` or `wp_set_password()`.
+
 ## Development
 
 ```
