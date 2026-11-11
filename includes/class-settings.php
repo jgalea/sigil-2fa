@@ -124,8 +124,20 @@ final class Settings {
 		if ( isset( $_POST['sigil_trusted_days'] ) ) {
 			Network::update_option( Trusted_Devices::OPTION_DAYS, max( 1, min( 365, absint( wp_unslash( $_POST['sigil_trusted_days'] ) ) ) ) );
 		}
+		if ( isset( $_POST['sigil_trusted_days'] ) ) {
+			Network::update_option( Trusted_Devices::OPTION_ENABLED, ! empty( $_POST['sigil_trusted_enabled'] ) ? 1 : 0 );
+
+			$trusted_roles = array();
+			$posted        = isset( $_POST['sigil_trusted_roles'] ) && is_array( $_POST['sigil_trusted_roles'] ) ? wp_unslash( $_POST['sigil_trusted_roles'] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- keys are checked against the known roles below.
+			foreach ( array_keys( wp_roles()->roles ) as $role ) {
+				if ( ! empty( $posted[ $role ] ) ) {
+					$trusted_roles[ sanitize_key( (string) $role ) ] = true;
+				}
+			}
+			Network::update_option( Trusted_Devices::OPTION_ROLES, $trusted_roles );
+		}
 		if ( ! empty( $_POST['sigil_revoke_trusted'] ) ) {
-			Trusted_Devices::instance()->revoke_all( get_current_user_id() );
+			Trusted_Devices::instance()->revoke_everyone();
 		}
 		Zero_Setup::set_enabled( ! empty( $_POST['sigil_zero_setup'] ) );
 

@@ -187,19 +187,51 @@ $locked_out = ! empty( $locked_out );
 			</tr>
 
 			<tr>
-				<th scope="row">
-					<label for="sigil-trusted-days"><?php echo esc_html__( 'Remember this device', 'sigil-2fa' ); ?></label>
-				</th>
+				<th scope="row"><?php echo esc_html__( 'Remember this device', 'sigil-2fa' ); ?></th>
 				<td>
-					<input type="number" min="1" max="365" step="1" id="sigil-trusted-days" name="sigil_trusted_days" value="<?php echo esc_attr( (string) \Sigil\Trusted_Devices::trust_days() ); ?>" class="small-text" />
-					<?php echo esc_html__( 'days', 'sigil-2fa' ); ?>
-					<p class="description">
-						<?php echo esc_html__( 'How long a device stays trusted after someone ticks the box on the challenge screen. Trust ends when they change their password or their methods.', 'sigil-2fa' ); ?>
-					</p>
 					<label>
-						<input type="checkbox" name="sigil_revoke_trusted" value="1" />
-						<?php echo esc_html__( 'Forget my trusted devices', 'sigil-2fa' ); ?>
+						<input type="checkbox" name="sigil_trusted_enabled" value="1" <?php checked( (bool) \Sigil\Network::get_option( \Sigil\Trusted_Devices::OPTION_ENABLED, 1 ) ); ?> />
+						<?php echo esc_html__( 'Let people skip the second step on a device they trust', 'sigil-2fa' ); ?>
 					</label>
+					<p>
+						<label for="sigil-trusted-days"><?php echo esc_html__( 'Trusted for', 'sigil-2fa' ); ?></label>
+						<input type="number" min="1" max="365" step="1" id="sigil-trusted-days" name="sigil_trusted_days" value="<?php echo esc_attr( (string) \Sigil\Trusted_Devices::trust_days() ); ?>" class="small-text" />
+						<?php echo esc_html__( 'days', 'sigil-2fa' ); ?>
+					</p>
+					<?php if ( array() !== $roles ) : ?>
+						<fieldset>
+							<legend class="screen-reader-text"><?php echo esc_html__( 'Roles that may trust a device', 'sigil-2fa' ); ?></legend>
+							<p class="description"><?php echo esc_html__( 'Roles that may trust a device. Leave all unticked to allow every role.', 'sigil-2fa' ); ?></p>
+							<?php $trusted_roles = (array) \Sigil\Network::get_option( \Sigil\Trusted_Devices::OPTION_ROLES, array() ); ?>
+							<?php foreach ( $roles as $role_slug => $role_obj ) : ?>
+								<?php
+								$role_slug  = (string) $role_slug;
+								$role_label = is_array( $role_obj ) && isset( $role_obj['name'] ) ? translate_user_role( $role_obj['name'] ) : $role_slug;
+								?>
+								<label style="display:block;margin-bottom:4px;">
+									<input type="checkbox" name="sigil_trusted_roles[<?php echo esc_attr( $role_slug ); ?>]" value="1" <?php checked( ! empty( $trusted_roles[ $role_slug ] ) ); ?> />
+									<?php echo esc_html( $role_label ); ?>
+								</label>
+							<?php endforeach; ?>
+						</fieldset>
+					<?php endif; ?>
+					<p class="description">
+						<?php echo esc_html__( 'Trust ends when someone changes their password or their methods.', 'sigil-2fa' ); ?>
+					</p>
+					<p>
+						<label>
+							<input type="checkbox" name="sigil_revoke_trusted" value="1" />
+							<?php
+							echo esc_html(
+								sprintf(
+									/* translators: %d: number of accounts that currently have trusted devices */
+									_n( 'Forget the trusted devices of every user (%d account has some)', 'Forget the trusted devices of every user (%d accounts have some)', \Sigil\Trusted_Devices::accounts_with_devices(), 'sigil-2fa' ),
+									\Sigil\Trusted_Devices::accounts_with_devices()
+								)
+							);
+							?>
+						</label>
+					</p>
 				</td>
 			</tr>
 
