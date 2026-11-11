@@ -54,4 +54,18 @@ class Test_Enrolment extends WP_UnitTestCase {
 		$this->assertSame( 'That code was wrong.', $first['message'] );
 		$this->assertSame( '', $second['message'], 'shown once' );
 	}
+
+	// The fallback that stored whatever was posted when a provider refused
+	// enrolled an email method for an account with no address, and the screen
+	// reported success while no code could ever be sent.
+	public function test_a_refused_email_enrolment_is_not_stored(): void {
+		add_filter( 'sigil_store_unvalidated_enrolment', '__return_false' );
+		$uid = self::factory()->user->create( array( 'user_email' => 'not-an-address' ) );
+		wp_set_current_user( $uid );
+
+		$result = \Sigil\Enrolment::instance()->complete_method( $uid, 'email', array() );
+
+		$this->assertWPError( $result );
+		$this->assertArrayNotHasKey( 'email', \Sigil\Store::methods( $uid ) );
+	}
 }

@@ -247,7 +247,13 @@ final class Enrolment {
 				return $result;
 			}
 
-			// Programmatic / unit-test path: storage-shaped stubs (e.g. secret => x).
+			// Only the unit suite stores storage-shaped stubs (secret => x). In
+			// production a provider that refuses is not enrolled, so an email
+			// method can't be saved for an account that has no address to send to.
+			if ( ! apply_filters( 'sigil_store_unvalidated_enrolment', defined( 'WP_TESTS_DOMAIN' ), $provider_id ) ) {
+				return $result;
+			}
+
 			Store::set_method( $user_id, $provider_id, $input );
 		}
 
