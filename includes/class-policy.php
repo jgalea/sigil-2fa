@@ -61,8 +61,65 @@ final class Policy {
 	 * @param array<string, mixed> $policy
 	 */
 	public static function update( array $policy ): void {
-		$merged = array_merge( self::get(), $policy );
-		Network::update_option( self::OPTION_KEY, self::sanitize( $merged ) );
+		$before = self::get();
+		$after  = self::sanitize( array_merge( $before, $policy ) );
+		Network::update_option( self::OPTION_KEY, $after );
+
+		$weakened = self::weakened( $before, $after );
+		if ( array() !== $weakened ) {
+			/**
+			 * Fires after a policy change that protects less than before.
+			 *
+			 * @param list<string> $weakened What was switched off, in words.
+			 */
+			do_action( 'sigil_policy_weakened', $weakened );
+		}
+	}
+
+	/**
+	 * What saving this patch would switch off.
+	 *
+	 * @param array<string, mixed> $patch
+	 * @return list<string>
+	 */
+	public static function weakened_by( array $patch ): array {
+		$current = self::get();
+
+		return self::weakened( $current, self::sanitize( array_merge( $current, $patch ) ) );
+	}
+
+	/**
+	 * @param array<string, mixed> $before
+	 * @param array<string, mixed> $after
+	 * @return list<string>
+	 */
+	private static function weakened( array $before, array $after ): array {
+		$labels = array(
+			'enabled'         => __( 'Requiring two-factor authentication', 'sigil-2fa' ),
+			'enforce_all'     => __( 'Requiring it for all users', 'sigil-2fa' ),
+			'passwordless'    => __( 'Passwordless sign-in', 'sigil-2fa' ),
+			'limit_passwords' => __( 'Password attempt limits', 'sigil-2fa' ),
+		);
+
+		$out = array();
+		foreach ( $labels as $key => $label ) {
+			if ( ! empty( $before[ $key ] ) && empty( $after[ $key ] ) ) {
+				$out[] = $label;
+			}
+		}
+
+		foreach ( (array) $before['roles'] as $role => $on ) {
+			if ( $on && empty( $after['roles'][ $role ] ) ) {
+				/* translators: %s: role slug */
+				$out[] = sprintf( __( 'Requiring it for the %s role', 'sigil-2fa' ), $role );
+			}
+		}
+
+		if ( '' !== $before['min_capability'] && '' === $after['min_capability'] ) {
+			$out[] = __( 'The minimum capability rule', 'sigil-2fa' );
+		}
+
+		return $out;
 	}
 
 	public static function required_for( int $user_id ): bool {

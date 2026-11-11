@@ -441,6 +441,10 @@ final class REST {
 			return new \WP_Error( 'sigil_lockout', Policy::lockout_message(), array( 'status' => 409 ) );
 		}
 
+		if ( array() !== Policy::weakened_by( $patch ) && ! Step_Up::allows( get_current_user_id() ) ) {
+			return Step_Up::error();
+		}
+
 		Policy::update( $patch );
 
 		return rest_ensure_response( Policy::get() );

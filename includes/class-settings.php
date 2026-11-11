@@ -22,6 +22,25 @@ final class Settings {
 		// administrator and lives under Network Admin -> Settings.
 		add_action( Network::is_network() ? 'network_admin_menu' : 'admin_menu', array( $this, 'register_menu' ) );
 		add_action( 'admin_post_sigil_save_settings', array( $this, 'handle_save' ) );
+		add_filter( 'sigil_enrol_redirect', array( $this, 'return_from_step_up' ), 10, 3 );
+	}
+
+	/**
+	 * Bring a confirmation given from this screen back to it.
+	 *
+	 * @param string $url
+	 * @param int    $user_id
+	 * @param string $status
+	 */
+	public function return_from_step_up( $url, $user_id, $status ): string {
+		unset( $user_id );
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified by the step-up handler that applies this filter.
+		if ( empty( $_POST['sigil_settings'] ) ) {
+			return (string) $url;
+		}
+
+		return add_query_arg( 'success' === $status ? 'confirmed' : 'sigil_status', 'success' === $status ? '1' : 'error', Network::settings_url() );
 	}
 
 	public function register_menu(): void {
@@ -64,6 +83,13 @@ final class Settings {
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice flag set by our own redirect.
 		$bad_cap = isset( $_GET['bad_cap'] ) ? sanitize_key( wp_unslash( (string) $_GET['bad_cap'] ) ) : '';
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice flags set by our own redirects.
+		$needs_step_up = isset( $_GET['stepup'] ) && '1' === sanitize_key( wp_unslash( (string) $_GET['stepup'] ) );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$confirmed = isset( $_GET['confirmed'] ) && '1' === sanitize_key( wp_unslash( (string) $_GET['confirmed'] ) );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$step_up_error = isset( $_GET['sigil_status'] ) && 'error' === sanitize_key( wp_unslash( (string) $_GET['sigil_status'] ) ) ? Enrolment::take_message() : '';
 
 		wp_enqueue_script( 'sigil-enforce-all', SIGIL_URL . 'assets/js/enforce-all.js', array(), SIGIL_VERSION, true );
 
@@ -124,6 +150,13 @@ final class Settings {
 
 		if ( Policy::would_lock_out( get_current_user_id(), $patch ) ) {
 			wp_safe_redirect( add_query_arg( 'lockout', '1', Network::settings_url() ) );
+			exit;
+		}
+
+		// Loosening protection is what a hijacked session would do first, so it
+		// needs the same fresh proof as changing a method.
+		if ( array() !== Policy::weakened_by( $patch ) && ! Step_Up::allows( get_current_user_id() ) ) {
+			wp_safe_redirect( add_query_arg( 'stepup', '1', Network::settings_url() ) );
 			exit;
 		}
 

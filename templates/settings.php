@@ -26,12 +26,30 @@ if ( ! isset( $roles ) || ! is_array( $roles ) ) {
 $updated    = ! empty( $updated );
 $locked_out = ! empty( $locked_out );
 $bad_cap    = isset( $bad_cap ) ? (string) $bad_cap : '';
+$needs_step_up = ! empty( $needs_step_up );
+$confirmed     = ! empty( $confirmed );
+$step_up_error = isset( $step_up_error ) ? (string) $step_up_error : '';
 ?>
 <div class="wrap">
 	<h1><?php echo esc_html__( 'Sigil', 'sigil-2fa' ); ?></h1>
 
 	<?php if ( $updated ) : ?>
 		<div class="notice notice-success is-dismissible"><p><?php echo esc_html__( 'Settings saved.', 'sigil-2fa' ); ?></p></div>
+	<?php endif; ?>
+
+	<?php if ( $confirmed ) : ?>
+		<div class="notice notice-success is-dismissible"><p><?php echo esc_html__( 'Confirmed. Save the settings again to apply your changes.', 'sigil-2fa' ); ?></p></div>
+	<?php endif; ?>
+
+	<?php if ( '' !== $step_up_error ) : ?>
+		<div class="notice notice-error"><p><?php echo esc_html( $step_up_error ); ?></p></div>
+	<?php endif; ?>
+
+	<?php if ( $needs_step_up ) : ?>
+		<div class="notice notice-warning" style="padding:12px 16px;max-width:720px;">
+			<p><?php echo esc_html__( 'Nothing was saved. Loosening these settings needs a quick confirmation that it is you.', 'sigil-2fa' ); ?></p>
+			<?php \Sigil\Enrolment::instance()->render_step_up_form( get_current_user_id(), '', array( 'sigil_settings' => '1' ) ); ?>
+		</div>
 	<?php endif; ?>
 
 	<?php if ( '' !== $bad_cap ) : ?>

@@ -8,6 +8,8 @@ declare( strict_types=1 );
  */
 class Test_Lockout_Guard extends WP_UnitTestCase {
 
+	use Signed_In;
+
 	private \WP_REST_Server $server;
 
 	public function set_up(): void {
@@ -194,7 +196,8 @@ class Test_Lockout_Guard extends WP_UnitTestCase {
 	public function test_the_settings_screen_saves_once_you_have_a_method(): void {
 		$admin = $this->admin();
 		$this->enrol( $admin );
-		wp_set_current_user( $admin );
+		$this->sign_in( $admin, HOUR_IN_SECONDS );
+		\Sigil\Step_Up::record( $admin, true );
 
 		$location = $this->submit(
 			array( \Sigil\Settings::instance(), 'handle_save' ),
