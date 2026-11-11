@@ -310,6 +310,20 @@ class Test_REST extends WP_UnitTestCase {
 		$this->assertSame( 401, $response->get_status(), 'no cookie at all is refused too' );
 	}
 
+	public function test_reading_a_challenge_needs_the_browser_that_started_it(): void {
+		$user = self::factory()->user->create_and_get( array( 'user_login' => 'bound_reader' ) );
+		\Sigil\Store::set_method( $user->ID, 'email', array( 'enrolled_at' => 1 ) );
+		$token = \Sigil\Challenge::start( $user, false, '' );
+
+		$mine = $this->request( 'GET', '/sigil/v1/challenge', array( 'token' => $token ) );
+		$this->assertSame( 200, $mine->get_status(), 'the starting browser can read it' );
+
+		$_COOKIE['sigil_challenge'] = bin2hex( random_bytes( 32 ) );
+		$theirs = $this->request( 'GET', '/sigil/v1/challenge', array( 'token' => $token ) );
+		$this->assertSame( 401, $theirs->get_status() );
+		$this->assertStringNotContainsString( 'bound_reader', (string) wp_json_encode( $theirs->get_data() ) );
+	}
+
 	public function test_the_rest_flow_can_ask_for_an_email_code(): void {
 		$user = self::factory()->user->create_and_get();
 		\Sigil\Store::set_method( $user->ID, 'email', array( 'enrolled_at' => 1 ) );
