@@ -55,4 +55,16 @@ class Test_WooCommerce extends WP_UnitTestCase {
 
 		$this->assertArrayHasKey( '^kept$', (array) get_option( 'rewrite_rules' ), 'a flush would have dropped the marker' );
 	}
+
+	// The check used to run on every request, so another plugin that strips page
+	// endpoints from the rules made every request flush them.
+	public function test_the_rules_are_checked_once_per_plugin_version(): void {
+		$this->set_permalink_structure( '/%postname%/' );
+		$this->tab()->add_endpoint();
+
+		update_option( 'rewrite_rules', array( '^unrelated/?$' => 'index.php?unrelated=1' ) );
+		$this->tab()->add_endpoint();
+
+		$this->assertSame( array( '^unrelated/?$' => 'index.php?unrelated=1' ), get_option( 'rewrite_rules' ), 'no second flush' );
+	}
 }

@@ -18,6 +18,8 @@ final class WooCommerce {
 
 	public const ENDPOINT = 'two-factor';
 
+	private const RULES_CHECKED = 'sigil_wc_rules_checked';
+
 	private static ?WooCommerce $instance = null;
 
 	public static function instance(): WooCommerce {
@@ -67,6 +69,13 @@ final class WooCommerce {
 
 		// Rules built before this endpoint existed send the tab's URL somewhere
 		// else until they are rebuilt, and nobody thinks to re-save permalinks.
+		// Checked once per plugin version: if another plugin strips page
+		// endpoints, a check on every request would flush on every request.
+		if ( SIGIL_VERSION === get_option( self::RULES_CHECKED ) ) {
+			return;
+		}
+		update_option( self::RULES_CHECKED, SIGIL_VERSION );
+
 		$rules = get_option( 'rewrite_rules' );
 		if ( is_array( $rules ) && array() === preg_grep( '#/' . self::ENDPOINT . '#', array_keys( $rules ) ) ) {
 			flush_rewrite_rules( false );
