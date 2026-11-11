@@ -204,7 +204,7 @@ final class Passwordless {
 			$binding,
 			array(
 				'expires'  => time() + self::BINDING_TTL,
-				'path'     => defined( 'COOKIEPATH' ) && '' !== COOKIEPATH ? COOKIEPATH : '/',
+				'path'     => '/',
 				'domain'   => defined( 'COOKIE_DOMAIN' ) && COOKIE_DOMAIN ? COOKIE_DOMAIN : '',
 				'secure'   => is_ssl() || 'https' === wp_parse_url( home_url(), PHP_URL_SCHEME ),
 				'httponly' => true,

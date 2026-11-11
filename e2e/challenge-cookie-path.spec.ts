@@ -59,3 +59,16 @@ test('the challenge completes on a site whose COOKIEPATH is not a prefix of wp-l
 
 	await ctx.dispose();
 });
+
+test('the passwordless binding cookie is also sent on /', async ({ playwright, baseURL }) => {
+	const ctx = await playwright.request.newContext({ baseURL, extraHTTPHeaders: { 'X-E2E-Cookiepath': '1' } });
+
+	cli(['eval', "Sigil\\Policy::update( array( 'passwordless' => true ) );"]);
+	const res = await ctx.get('/?rest_route=/sigil/v1/passwordless');
+	expect(res.status()).toBe(200);
+
+	const binding = res.headersArray().find((h) => h.name.toLowerCase() === 'set-cookie' && h.value.startsWith('sigil_passwordless='));
+	expect(binding?.value).toMatch(/path=\/(;|$)/i);
+
+	await ctx.dispose();
+});
