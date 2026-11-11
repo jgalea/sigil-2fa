@@ -22,7 +22,7 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 function sigil_uninstall_site(): void {
 	global $wpdb;
 
-	foreach ( array( 'sigil_db_version', 'sigil_policy', 'sigil_frontend_page', 'sigil_first_activated', 'sigil_import_notice_hidden' ) as $option ) {
+	foreach ( array( 'sigil_db_version', 'sigil_policy', 'sigil_frontend_page', 'sigil_first_activated', 'sigil_import_notice_hidden', 'sigil_wc_rules_checked', 'sigil_trusted_enabled', 'sigil_trusted_roles' ) as $option ) {
 		delete_option( $option );
 	}
 
@@ -60,7 +60,7 @@ function sigil_uninstall(): void {
 		return;
 	}
 
-	foreach ( array( 'sigil_db_version', 'sigil_policy', 'sigil_first_activated', 'sigil_import_notice_hidden' ) as $option ) {
+	foreach ( array( 'sigil_db_version', 'sigil_policy', 'sigil_first_activated', 'sigil_import_notice_hidden', 'sigil_trusted_enabled', 'sigil_trusted_roles' ) as $option ) {
 		delete_site_option( $option );
 	}
 
