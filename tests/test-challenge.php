@@ -60,18 +60,19 @@ class Test_Challenge extends WP_UnitTestCase {
 		$this->assertTrue( \Sigil\Challenge::complete( $tok, 'backup', array( 'code' => $codes[0] ) ), 'the starting browser still works' );
 	}
 
-	public function test_a_sign_in_started_before_the_update_can_still_finish(): void {
+	public function test_a_token_with_no_binding_is_refused(): void {
 		$user  = self::factory()->user->create_and_get();
-		$p     = new \Sigil\Providers\Backup_Codes();
-		$codes = $p->generate( $user->ID );
+		$codes = ( new \Sigil\Providers\Backup_Codes() )->generate( $user->ID );
 		$tok   = \Sigil\Challenge::start( $user, false );
 		$key   = 'sigil_ch_' . hash( 'sha256', $tok );
 		$raw   = get_transient( $key );
 		unset( $raw['bind'] );
 		set_transient( $key, $raw, 300 );
 
-		unset( $_COOKIE['sigil_challenge'] );
-		$this->assertTrue( \Sigil\Challenge::complete( $tok, 'backup', array( 'code' => $codes[0] ) ) );
+		$result = \Sigil\Challenge::complete( $tok, 'backup', array( 'code' => $codes[0] ) );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'sigil_invalid_token', $result->get_error_code() );
 	}
 
 	public function test_a_retry_token_stays_bound_to_the_same_browser(): void {

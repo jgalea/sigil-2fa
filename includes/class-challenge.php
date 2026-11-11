@@ -38,6 +38,7 @@ final class Challenge {
 	private function __construct() {
 		add_action( 'wp_login', array( $this, 'on_login' ), 10, 2 );
 		add_action( 'login_form_sigil', array( $this, 'handle_challenge_request' ) );
+		add_filter( 'login_message', array( $this, 'expired_message' ) );
 	}
 
 	/**
@@ -95,7 +96,7 @@ final class Challenge {
 
 	public static function user_for( string $token ): ?\WP_User {
 		$payload = self::payload( $token );
-		if ( null === $payload ) {
+		if ( null === $payload || ! self::is_bound( $payload ) ) {
 			return null;
 		}
 
@@ -340,6 +341,18 @@ final class Challenge {
 	}
 
 	/**
+	 * @param string $message
+	 */
+	public function expired_message( $message ): string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
+		if ( isset( $_GET['sigil_expired'] ) ) {
+			$message .= '<p class="message">' . esc_html__( 'Your sign-in session ended. Please sign in again.', 'sigil-2fa' ) . '</p>';
+		}
+
+		return (string) $message;
+	}
+
+	/**
 	 * Handle POST/GET on wp-login.php?action=sigil.
 	 */
 	public function handle_challenge_request(): void {
@@ -391,6 +404,13 @@ final class Challenge {
 			$payload_before = self::payload( $token );
 			$input          = self::sanitize_input( wp_unslash( $_POST ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 			$result         = self::complete( $token, $provider_id, $input );
+
+			if ( is_wp_error( $result ) && 'sigil_invalid_token' === $result->get_error_code() ) {
+				// Nothing to retry: a session this browser doesn't hold, or one
+				// that ended. The password step is the way forward.
+				wp_safe_redirect( add_query_arg( 'sigil_expired', '1', wp_login_url() ) );
+				exit;
+			}
 
 			if ( is_wp_error( $result ) ) {
 				// The attempt consumed the token, so re-render against its
@@ -469,10 +489,7 @@ final class Challenge {
 	 * @param array{bind: string} $payload
 	 */
 	private static function is_bound( array $payload ): bool {
-		// A sign-in already waiting at the second step when the plugin was
-		// updated has no binding to check. Letting it finish once beats locking
-		// out someone halfway through; it expires within minutes either way.
-		return '' === $payload['bind'] || hash_equals( $payload['bind'], hash( 'sha256', self::binding_from_cookie() ) );
+		return '' !== $payload['bind'] && hash_equals( $payload['bind'], hash( 'sha256', self::binding_from_cookie() ) );
 	}
 
 	private static function binding_from_cookie(): string {
