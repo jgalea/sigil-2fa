@@ -18,7 +18,7 @@ class Test_Concurrent_Claim extends WP_UnitTestCase {
 		$totp = new \Sigil\Providers\Totp();
 		$totp->handle_enrol( $uid, array( 'secret' => self::SECRET, 'code' => $totp::code_at( self::SECRET, time() - 30 ) ) );
 
-		$key  = 'totp:' . $uid . ':' . (int) floor( time() / 30 );
+		$key  = 'totp:' . $uid . ':' . substr( hash( 'sha256', self::SECRET ), 0, 12 ) . ':' . (int) floor( time() / 30 );
 		$code = $totp::code_at( self::SECRET, time() );
 		$this->assertSame( 1, \Sigil\Rate_Limit::reserve( $key, 120 ), 'the other request took the step' );
 
@@ -26,6 +26,19 @@ class Test_Concurrent_Claim extends WP_UnitTestCase {
 
 		\Sigil\Rate_Limit::clear( $key );
 		$this->assertTrue( $totp->validate( $uid, array( 'code' => $code ) ), 'control: the same code passes when nobody else holds the step' );
+	}
+
+	public function test_a_new_secret_is_not_refused_for_a_step_the_old_one_used(): void {
+		$uid  = self::factory()->user->create();
+		$totp = new \Sigil\Providers\Totp();
+		$totp->handle_enrol( $uid, array( 'secret' => self::SECRET, 'code' => $totp::code_at( self::SECRET, time() - 30 ) ) );
+		$this->assertTrue( $totp->validate( $uid, array( 'code' => $totp::code_at( self::SECRET, time() ) ) ) );
+
+		\Sigil\Store::remove_method( $uid, 'totp' );
+		$other = 'MFRGGZDFMZTWQ2LKNNWG23TPOBYXE43U';
+		$totp->handle_enrol( $uid, array( 'secret' => $other, 'code' => $totp::code_at( $other, time() - 30 ) ) );
+
+		$this->assertTrue( $totp->validate( $uid, array( 'code' => $totp::code_at( $other, time() ) ) ) );
 	}
 
 	public function test_a_backup_code_already_claimed_by_another_request_is_refused(): void {

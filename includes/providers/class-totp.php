@@ -193,8 +193,10 @@ final class TOTP implements Provider {
 
 		// last_step is read, compared and written back, which two simultaneous
 		// submissions of one code can both get through. Taking the step in one
-		// statement means only the request that gets 1 back may use it.
-		if ( 1 !== Rate_Limit::reserve( 'totp:' . $user_id . ':' . $matched_step, 2 * MINUTE_IN_SECONDS ) ) {
+		// statement means only the request that gets 1 back may use it. The secret
+		// is part of the key, so a fresh enrolment is not refused for a step the
+		// previous secret already used.
+		if ( 1 !== Rate_Limit::reserve( 'totp:' . $user_id . ':' . substr( hash( 'sha256', $secret ), 0, 12 ) . ':' . $matched_step, 2 * MINUTE_IN_SECONDS ) ) {
 			return false;
 		}
 
