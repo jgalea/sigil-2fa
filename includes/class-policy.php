@@ -98,6 +98,24 @@ final class Policy {
 			&& ! Providers::instance()->has_usable( $user_id );
 	}
 
+	/**
+	 * Whether a role on this site carries the capability. An empty value is
+	 * fine, it means no capability rule.
+	 */
+	public static function is_known_capability( string $cap ): bool {
+		if ( '' === $cap ) {
+			return true;
+		}
+
+		foreach ( wp_roles()->roles as $role ) {
+			if ( is_array( $role ) && ! empty( $role['capabilities'][ $cap ] ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	public static function lockout_message(): string {
 		return __( 'Nothing was saved. This would require two-factor authentication for your own account, and you have not set up a method yet, so you would be locked out. Set up a passkey or an authenticator app first, then try again.', 'sigil-2fa' );
 	}

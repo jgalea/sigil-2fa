@@ -68,6 +68,15 @@ class Test_Settings_Options extends WP_UnitTestCase {
 		$this->assertFalse( \Sigil\Trusted_Devices::instance()->is_trusted( $admin, $token ) );
 	}
 
+	public function test_a_capability_typo_is_refused_instead_of_saved(): void {
+		wp_set_current_user( $this->admin() );
+
+		$where = $this->submit( array( 'sigil_policy' => array( 'enabled' => '1', 'min_capability' => 'manage_optoins' ) ) );
+
+		$this->assertStringContainsString( 'bad_cap=manage_optoins', $where );
+		$this->assertFalse( \Sigil\Policy::get()['enabled'], 'nothing in the form was saved' );
+	}
+
 	public function test_the_trusted_days_are_clamped(): void {
 		wp_set_current_user( $this->admin() );
 

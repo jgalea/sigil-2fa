@@ -25,12 +25,27 @@ if ( ! isset( $roles ) || ! is_array( $roles ) ) {
 }
 $updated    = ! empty( $updated );
 $locked_out = ! empty( $locked_out );
+$bad_cap    = isset( $bad_cap ) ? (string) $bad_cap : '';
 ?>
 <div class="wrap">
 	<h1><?php echo esc_html__( 'Sigil', 'sigil-2fa' ); ?></h1>
 
 	<?php if ( $updated ) : ?>
 		<div class="notice notice-success is-dismissible"><p><?php echo esc_html__( 'Settings saved.', 'sigil-2fa' ); ?></p></div>
+	<?php endif; ?>
+
+	<?php if ( '' !== $bad_cap ) : ?>
+		<div class="notice notice-error"><p>
+			<?php
+			echo esc_html(
+				sprintf(
+					/* translators: %s: the capability that was typed */
+					__( 'Nothing was saved. "%s" is not a capability any role on this site has, so it would cover nobody.', 'sigil-2fa' ),
+					$bad_cap
+				)
+			);
+			?>
+		</p></div>
 	<?php endif; ?>
 
 	<?php if ( $locked_out ) : ?>
@@ -115,7 +130,12 @@ $locked_out = ! empty( $locked_out );
 					<label for="sigil-min-capability"><?php echo esc_html__( 'Minimum capability', 'sigil-2fa' ); ?></label>
 				</th>
 				<td>
-					<input type="text" class="regular-text" id="sigil-min-capability" name="sigil_policy[min_capability]" value="<?php echo esc_attr( (string) $policy['min_capability'] ); ?>" />
+					<input type="text" class="regular-text" id="sigil-min-capability" name="sigil_policy[min_capability]" value="<?php echo esc_attr( (string) $policy['min_capability'] ); ?>" list="sigil-capabilities" autocomplete="off" />
+					<datalist id="sigil-capabilities">
+						<?php foreach ( array( 'manage_options', 'edit_others_posts', 'publish_posts', 'edit_posts', 'manage_woocommerce' ) as $sigil_cap ) : ?>
+							<option value="<?php echo esc_attr( $sigil_cap ); ?>"></option>
+						<?php endforeach; ?>
+					</datalist>
 					<p class="description">
 						<?php echo esc_html__( 'Optional. Any user with this capability is covered regardless of role. Roles and capability are combined with OR.', 'sigil-2fa' ); ?>
 					</p>

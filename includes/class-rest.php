@@ -420,6 +420,9 @@ final class REST {
 		}
 		if ( isset( $body['min_capability'] ) && is_string( $body['min_capability'] ) ) {
 			$patch['min_capability'] = sanitize_key( $body['min_capability'] );
+			if ( ! Policy::is_known_capability( $patch['min_capability'] ) ) {
+				return new \WP_Error( 'sigil_unknown_capability', __( 'No role on this site has that capability, so the rule would cover nobody.', 'sigil-2fa' ), array( 'status' => 400 ) );
+			}
 		}
 		foreach ( array( 'roles', 'block_app_passwords' ) as $map ) {
 			if ( isset( $body[ $map ] ) && is_array( $body[ $map ] ) ) {

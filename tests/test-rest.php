@@ -172,6 +172,17 @@ class Test_REST extends WP_UnitTestCase {
 		$this->assertTrue( \Sigil\Policy::get()['roles']['administrator'] );
 	}
 
+	public function test_a_capability_no_role_has_is_refused(): void {
+		wp_set_current_user( $this->user_manager() );
+
+		$bad = $this->request( 'POST', '/sigil/v1/policy', array( 'min_capability' => 'manage_optoins' ) );
+		$this->assertSame( 400, $bad->get_status() );
+		$this->assertSame( '', \Sigil\Policy::get()['min_capability'] );
+
+		$good = $this->request( 'POST', '/sigil/v1/policy', array( 'min_capability' => 'manage_options' ) );
+		$this->assertSame( 200, $good->get_status() );
+	}
+
 	public function test_challenge_rejects_a_bad_token(): void {
 		$this->assertSame( 401, $this->request( 'GET', '/sigil/v1/challenge', array( 'token' => 'nope' ) )->get_status() );
 	}

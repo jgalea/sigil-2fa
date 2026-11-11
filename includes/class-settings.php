@@ -62,6 +62,9 @@ final class Settings {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice flag set by our own redirect.
 		$locked_out = isset( $_GET['lockout'] ) && '1' === sanitize_key( wp_unslash( $_GET['lockout'] ) );
 
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice flag set by our own redirect.
+		$bad_cap = isset( $_GET['bad_cap'] ) ? sanitize_key( wp_unslash( (string) $_GET['bad_cap'] ) ) : '';
+
 		wp_enqueue_script( 'sigil-enforce-all', SIGIL_URL . 'assets/js/enforce-all.js', array(), SIGIL_VERSION, true );
 
 		require SIGIL_DIR . 'templates/settings.php';
@@ -101,6 +104,11 @@ final class Settings {
 		$cap = '';
 		if ( isset( $raw['min_capability'] ) && is_string( $raw['min_capability'] ) ) {
 			$cap = sanitize_key( $raw['min_capability'] );
+		}
+
+		if ( ! Policy::is_known_capability( $cap ) ) {
+			wp_safe_redirect( add_query_arg( 'bad_cap', rawurlencode( $cap ), Network::settings_url() ) );
+			exit;
 		}
 
 		$patch = array(
