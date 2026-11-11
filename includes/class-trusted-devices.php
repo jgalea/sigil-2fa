@@ -29,6 +29,7 @@ final class Trusted_Devices {
 	public const OPTION_ENABLED = 'sigil_trusted_enabled';
 	public const OPTION_ROLES   = 'sigil_trusted_roles';
 	private const DEFAULT_DAYS = 30;
+	private const MAX_DEVICES  = 20;
 	private const FIELD        = 'sigil_trust_device';
 	private const NONCE_FIELD  = 'sigil_trust_nonce';
 	private const NONCE        = 'sigil_trust_device';
@@ -261,7 +262,7 @@ final class Trusted_Devices {
 	 */
 	public function trust_current_device( int $user_id ): string {
 		$token   = bin2hex( random_bytes( 32 ) );
-		$devices = $this->prune( $user_id );
+		$devices   = array_slice( $this->prune( $user_id ), -( self::MAX_DEVICES - 1 ) );
 		$devices[] = array(
 			'hash'    => hash( 'sha256', $token ),
 			'ua'      => $this->ua_hash(),

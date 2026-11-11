@@ -237,4 +237,16 @@ class Test_Trusted_Devices extends WP_UnitTestCase {
 
 		return false;
 	}
+
+	public function test_a_user_holds_at_most_twenty_trusted_devices(): void {
+		$uid    = self::factory()->user->create();
+		$tokens = array();
+		for ( $i = 0; $i < 25; $i++ ) {
+			$tokens[] = $this->td()->trust_current_device( $uid );
+		}
+
+		$this->assertSame( 20, $this->td()->count_for( $uid ) );
+		$this->assertFalse( $this->td()->is_trusted( $uid, $tokens[0] ), 'the oldest is dropped' );
+		$this->assertTrue( $this->td()->is_trusted( $uid, $tokens[24] ) );
+	}
 }
