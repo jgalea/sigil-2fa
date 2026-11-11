@@ -206,8 +206,12 @@ password_post() { # user, password -> headers in $WORK/h.txt, body in $WORK/pw.h
 		--data-urlencode "log=$1" --data-urlencode "pwd=$2" -d "wp-submit=Log+In&testcookie=1&redirect_to=$BASE/wp-admin/" "$BASE/wp-login.php"
 }
 
-submit_challenge() { # provider, code -> headers in $WORK/h2.txt, body in $WORK/ch.html
-	local token nonce action
+# The challenge only answers the browser that typed the password, which it
+# recognises by the binding cookie the password step set.
+binding_cookie() { tr -d '\r' < "$WORK/h.txt" | grep -i '^set-cookie: *sigil_challenge=' | tail -1 | sed 's/^[^=]*=//; s/;.*//'; }
+
+submit_challenge() { # provider, code[, binding] -> headers in $WORK/h2.txt, body in $WORK/ch.html
+	local token nonce action binding="${3-$(binding_cookie)}"
 	token="$(grep -o 'name="sigil_token" value="[a-f0-9]*"' "$WORK/pw.html" | head -1 | sed 's/.*value="//; s/"$//')"
 	nonce="$(grep -o 'name="sigil_nonce" value="[^"]*"' "$WORK/pw.html" | head -1 | sed 's/.*value="//; s/"$//')"
 	action="$(grep -o '<form name="sigil_challenge"[^>]*' "$WORK/pw.html" | head -1 | sed 's/.*action="//; s/".*//; s/&#038;/\&/g; s/&amp;/\&/g')"
@@ -216,7 +220,7 @@ submit_challenge() { # provider, code -> headers in $WORK/h2.txt, body in $WORK/
 		echo "000"
 		return
 	fi
-	curl -s -D "$WORK/h2.txt" -o "$WORK/ch.html" -w '%{http_code}' -H 'Cookie: wordpress_test_cookie=WP%20Cookie%20check' \
+	curl -s -D "$WORK/h2.txt" -o "$WORK/ch.html" -w '%{http_code}' -H "Cookie: wordpress_test_cookie=WP%20Cookie%20check${binding:+; sigil_challenge=$binding}" \
 		--data-urlencode "sigil_token=$token" --data-urlencode "sigil_nonce=$nonce" --data-urlencode "sigil_provider=$1" \
 		--data-urlencode "code=$2" -d 'sigil_authenticate=1&sigil_remember=&sigil_redirect_to=' "$action"
 }
@@ -249,6 +253,12 @@ check_second_factor() {
 
 	check_password_only_blocked "second factor"
 
+	check "the password step sets the browser binding cookie" "$([ -n "$(binding_cookie)" ] && echo 0 || echo 1)"
+	code="$(submit_challenge totp "$(totp_code)" '')"
+	live="$(live_cookies "$WORK/h2.txt" | wc -l | tr -d ' ')"
+	check "a correct code from a browser without the binding cookie is refused (HTTP $code, $live live cookies)" "$([ "$live" -eq 0 ] && [ "$code" = "302" ] && echo 0 || echo 1)"
+
+	password_post smoke_2fa "$USER_PW" >/dev/null
 	code="$(submit_challenge totp 000000)"
 	live="$(live_cookies "$WORK/h2.txt" | wc -l | tr -d ' ')"
 	check "a wrong code is refused and issues no session (HTTP $code, $live live cookies)" "$([ "$live" -eq 0 ] && [ "$code" = "200" ] && echo 0 || echo 1)"
