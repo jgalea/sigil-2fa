@@ -6,6 +6,7 @@ namespace Sigil\Providers;
 
 use Sigil\Crypto;
 use Sigil\Provider;
+use Sigil\Rate_Limit;
 use Sigil\Store;
 
 defined( 'ABSPATH' ) || exit;
@@ -185,6 +186,13 @@ final class TOTP implements Provider {
 
 		if ( null === $matched_step ) {
 			self::note_clock_drift( $secret, $code, $step_now );
+			return false;
+		}
+
+		// last_step is read, compared and written back, which two simultaneous
+		// submissions of one code can both get through. Taking the step in one
+		// statement means only the request that gets 1 back may use it.
+		if ( 1 !== Rate_Limit::reserve( 'totp:' . $user_id . ':' . $matched_step, 2 * MINUTE_IN_SECONDS ) ) {
 			return false;
 		}
 

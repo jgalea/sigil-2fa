@@ -6,6 +6,7 @@ namespace Sigil\Providers;
 
 use Sigil\Crypto;
 use Sigil\Provider;
+use Sigil\Rate_Limit;
 use Sigil\Store;
 
 defined( 'ABSPATH' ) || exit;
@@ -209,6 +210,11 @@ final class Backup_Codes implements Provider {
 				continue;
 			}
 			if ( wp_check_password( $code, $entry['hash'] ) ) {
+				// Same race as a TOTP step: only the request that takes the
+				// claim first gets to spend the code.
+				if ( 1 !== Rate_Limit::reserve( 'backup:' . $user_id . ':' . md5( $entry['hash'] ), 2 * MINUTE_IN_SECONDS ) ) {
+					return false;
+				}
 				$codes[ $i ]['used'] = true;
 				$matched             = true;
 				break;
