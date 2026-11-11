@@ -284,7 +284,7 @@ final class Trusted_Devices {
 				$token,
 				array(
 					'expires'  => time() + self::trust_days() * DAY_IN_SECONDS,
-					'path'     => '/',
+					'path'     => defined( 'SITECOOKIEPATH' ) ? SITECOOKIEPATH : '/',
 					'domain'   => defined( 'COOKIE_DOMAIN' ) ? COOKIE_DOMAIN : '',
 					'secure'   => $secure,
 					'httponly' => true,
@@ -314,7 +314,13 @@ final class Trusted_Devices {
 
 		unset( $_COOKIE[ self::COOKIE ] );
 		if ( ! headers_sent() ) {
-			$paths = array_unique( array( '/', defined( 'COOKIEPATH' ) ? COOKIEPATH : '/' ) );
+			$paths = array_unique(
+				array(
+					'/',
+					defined( 'COOKIEPATH' ) ? COOKIEPATH : '/',
+					defined( 'SITECOOKIEPATH' ) ? SITECOOKIEPATH : '/',
+				)
+			);
 			foreach ( $paths as $path ) {
 				setcookie(
 					self::COOKIE,
