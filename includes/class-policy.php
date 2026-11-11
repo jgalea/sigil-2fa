@@ -11,6 +11,8 @@ final class Policy {
 	public const OPTION_KEY   = 'sigil_policy';
 	public const DEADLINE_META = '_sigil_deadline';
 
+	private const EXTRA = array( 'trusted_enabled', 'trusted_days', 'trusted_roles', 'zero_setup' );
+
 	/**
 	 * @return array{
 	 *   enabled: bool,
@@ -58,12 +60,57 @@ final class Policy {
 	}
 
 	/**
-	 * @param array<string, mixed> $policy
+	 * The policy plus the switches next to it that also decide how much a
+	 * sign-in is protected, so one comparison covers all of them.
+	 *
+	 * @return array<string, mixed>
 	 */
-	public static function update( array $policy ): void {
-		$before = self::get();
-		$after  = self::sanitize( array_merge( $before, $policy ) );
-		Network::update_option( self::OPTION_KEY, $after );
+	public static function protections(): array {
+		return self::get() + array(
+			'trusted_enabled' => (bool) Network::get_option( Trusted_Devices::OPTION_ENABLED, 1 ),
+			'trusted_days'    => Trusted_Devices::trust_days(),
+			'trusted_roles'   => array_filter( self::sanitize_role_map( Network::get_option( Trusted_Devices::OPTION_ROLES, array() ) ) ),
+			'zero_setup'      => Zero_Setup::is_enabled(),
+		);
+	}
+
+	/**
+	 * @param array<string, mixed> $current
+	 * @param array<string, mixed> $patch
+	 * @return array<string, mixed>
+	 */
+	private static function merged( array $current, array $patch ): array {
+		$after = self::sanitize( array_merge( $current, $patch ) );
+		$extra = array_merge( array_intersect_key( $current, array_flip( self::EXTRA ) ), array_intersect_key( $patch, array_flip( self::EXTRA ) ) );
+
+		$after['trusted_enabled'] = ! empty( $extra['trusted_enabled'] );
+		$after['trusted_days']    = max( 1, min( 365, (int) ( $extra['trusted_days'] ?? 1 ) ) );
+		$after['trusted_roles']   = array_filter( self::sanitize_role_map( $extra['trusted_roles'] ?? array() ) );
+		$after['zero_setup']      = ! empty( $extra['zero_setup'] );
+
+		return $after;
+	}
+
+	/**
+	 * @param array<string, mixed> $patch Policy fields, and any of trusted_enabled, trusted_days, trusted_roles and zero_setup.
+	 */
+	public static function update( array $patch ): void {
+		$before = self::protections();
+		$after  = self::merged( $before, $patch );
+
+		Network::update_option( self::OPTION_KEY, array_diff_key( $after, array_flip( self::EXTRA ) ) );
+		if ( array_key_exists( 'trusted_enabled', $patch ) ) {
+			Network::update_option( Trusted_Devices::OPTION_ENABLED, $after['trusted_enabled'] ? 1 : 0 );
+		}
+		if ( array_key_exists( 'trusted_days', $patch ) ) {
+			Network::update_option( Trusted_Devices::OPTION_DAYS, $after['trusted_days'] );
+		}
+		if ( array_key_exists( 'trusted_roles', $patch ) ) {
+			Network::update_option( Trusted_Devices::OPTION_ROLES, $after['trusted_roles'] );
+		}
+		if ( array_key_exists( 'zero_setup', $patch ) ) {
+			Zero_Setup::set_enabled( $after['zero_setup'] );
+		}
 
 		$weakened = self::weakened( $before, $after );
 		if ( array() !== $weakened ) {
@@ -77,15 +124,15 @@ final class Policy {
 	}
 
 	/**
-	 * What saving this patch would switch off.
+	 * What saving this patch would loosen.
 	 *
 	 * @param array<string, mixed> $patch
 	 * @return list<string>
 	 */
 	public static function weakened_by( array $patch ): array {
-		$current = self::get();
+		$current = self::protections();
 
-		return self::weakened( $current, self::sanitize( array_merge( $current, $patch ) ) );
+		return self::weakened( $current, self::merged( $current, $patch ) );
 	}
 
 	/**
@@ -115,11 +162,53 @@ final class Policy {
 			}
 		}
 
-		if ( '' !== $before['min_capability'] && '' === $after['min_capability'] ) {
-			$out[] = __( 'The minimum capability rule', 'sigil-2fa' );
+		foreach ( (array) $before['block_app_passwords'] as $role => $on ) {
+			if ( $on && empty( $after['block_app_passwords'][ $role ] ) ) {
+				/* translators: %s: role slug */
+				$out[] = sprintf( __( 'Blocking application passwords for the %s role', 'sigil-2fa' ), $role );
+			}
+		}
+
+		if ( '' !== $before['min_capability'] && $before['min_capability'] !== $after['min_capability'] ) {
+			$was = self::roles_holding( $before['min_capability'] );
+			$now = '' === $after['min_capability'] ? array() : self::roles_holding( $after['min_capability'] );
+			if ( '' === $after['min_capability'] || array() !== array_diff( $was, $now ) ) {
+				$out[] = __( 'The minimum capability rule', 'sigil-2fa' );
+			}
+		}
+
+		if ( empty( $before['zero_setup'] ) && ! empty( $after['zero_setup'] ) ) {
+			$out[] = __( 'Accepting email codes without setup', 'sigil-2fa' );
+		}
+
+		if ( empty( $before['trusted_enabled'] ) && ! empty( $after['trusted_enabled'] ) ) {
+			$out[] = __( 'Trusted devices', 'sigil-2fa' );
+		}
+
+		if ( (int) $after['trusted_days'] > (int) $before['trusted_days'] ) {
+			$out[] = __( 'How long a device stays trusted', 'sigil-2fa' );
+		}
+
+		$trusting = array_keys( (array) $before['trusted_roles'] );
+		if ( array() !== $trusting && ( array() === $after['trusted_roles'] || array() !== array_diff( array_keys( (array) $after['trusted_roles'] ), $trusting ) ) ) {
+			$out[] = __( 'Which roles can trust a device', 'sigil-2fa' );
 		}
 
 		return $out;
+	}
+
+	/**
+	 * @return list<string>
+	 */
+	private static function roles_holding( string $capability ): array {
+		$roles = array();
+		foreach ( wp_roles()->roles as $slug => $role ) {
+			if ( ! empty( $role['capabilities'][ $capability ] ) ) {
+				$roles[] = (string) $slug;
+			}
+		}
+
+		return $roles;
 	}
 
 	public static function required_for( int $user_id ): bool {

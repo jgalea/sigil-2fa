@@ -114,4 +114,82 @@ class Test_Policy_Weakening extends WP_UnitTestCase {
 
 		$this->assertTrue( \Sigil\Policy::get()['enforce_all'] );
 	}
+
+	/**
+	 * @param array<string, mixed> $extra
+	 */
+	private function save_with( array $extra ): string {
+		$_POST                = array_merge( array( 'sigil_policy' => array( 'enabled' => '1', 'passwordless' => '1', 'limit_passwords' => '1' ) ), $extra );
+		$_REQUEST             = $_POST;
+		$_REQUEST['_wpnonce'] = wp_create_nonce( 'sigil_save_settings' );
+
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) {
+				throw new \RuntimeException( (string) $location );
+			}
+		);
+
+		try {
+			\Sigil\Settings::instance()->handle_save();
+		} catch ( \RuntimeException $e ) {
+			return $e->getMessage();
+		}
+
+		return '';
+	}
+
+	/**
+	 * @return array<string, array{0: array<string, mixed>, 1: array<string, mixed>}>
+	 */
+	public static function loosening_saves(): array {
+		return array(
+			'longer trust'      => array( array( 'trusted_days' => 30 ), array( 'sigil_trusted_days' => '365', 'sigil_trusted_enabled' => '1' ) ),
+			'trusted devices on' => array( array( 'trusted_enabled' => false ), array( 'sigil_trusted_days' => '30', 'sigil_trusted_enabled' => '1' ) ),
+			'more trusting roles' => array( array( 'trusted_roles' => array( 'editor' => true ) ), array( 'sigil_trusted_days' => '30', 'sigil_trusted_enabled' => '1', 'sigil_trusted_roles' => array( 'editor' => '1', 'author' => '1' ) ) ),
+			'zero setup on'     => array( array(), array( 'sigil_zero_setup' => '1' ) ),
+		);
+	}
+
+	/**
+	 * @dataProvider loosening_saves
+	 * @param array<string, mixed> $start
+	 * @param array<string, mixed> $post
+	 */
+	public function test_loosening_the_switches_beside_the_policy_is_held_too( array $start, array $post ): void {
+		\Sigil\Policy::update( array_merge( array( 'trusted_enabled' => true, 'trusted_days' => 30, 'trusted_roles' => array(), 'zero_setup' => false ), $start ) );
+		$this->sent = array();
+		$before     = \Sigil\Policy::protections();
+
+		$admin = $this->admin_with_totp();
+		$this->sign_in( $admin, HOUR_IN_SECONDS );
+
+		$this->assertStringContainsString( 'stepup=1', $this->save_with( $post ) );
+		$this->assertSame( $before, \Sigil\Policy::protections(), 'nothing was saved' );
+
+		\Sigil\Step_Up::record( $admin, true );
+		$this->save_with( $post );
+
+		$this->assertNotSame( $before, \Sigil\Policy::protections() );
+		$this->assertNotEmpty( $this->sent, 'the site contact is told' );
+	}
+
+	public function test_unblocking_application_passwords_and_narrowing_the_capability_count_as_loosening(): void {
+		\Sigil\Policy::update( array( 'block_app_passwords' => array( 'editor' => true ), 'min_capability' => 'edit_posts' ) );
+
+		$this->assertSame( array( 'Blocking application passwords for the editor role' ), \Sigil\Policy::weakened_by( array( 'block_app_passwords' => array() ) ) );
+		$this->assertNotSame( array(), \Sigil\Policy::weakened_by( array( 'min_capability' => 'manage_options' ) ), 'fewer roles are covered' );
+		$this->assertSame( array(), \Sigil\Policy::weakened_by( array( 'min_capability' => 'read' ) ), 'more roles are covered' );
+	}
+
+	public function test_tightening_the_switches_beside_the_policy_needs_no_confirmation(): void {
+		\Sigil\Policy::update( array( 'trusted_enabled' => true, 'trusted_days' => 30, 'trusted_roles' => array(), 'zero_setup' => true ) );
+		$admin = $this->admin_with_totp();
+		$this->sign_in( $admin, HOUR_IN_SECONDS );
+
+		$this->save_with( array( 'sigil_trusted_days' => '7', 'sigil_trusted_enabled' => '1' ) );
+
+		$this->assertSame( 7, \Sigil\Trusted_Devices::trust_days() );
+		$this->assertFalse( \Sigil\Zero_Setup::is_enabled() );
+	}
 }
