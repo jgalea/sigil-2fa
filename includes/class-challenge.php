@@ -10,6 +10,10 @@ final class Challenge {
 
 	private const TTL = 5 * MINUTE_IN_SECONDS;
 
+	private const BINDING_COOKIE = 'sigil_challenge';
+
+	private const BINDING_TTL = DAY_IN_SECONDS;
+
 	/**
 	 * How many unspent tokens one account may hold at once.
 	 *
@@ -42,11 +46,18 @@ final class Challenge {
 	public static function start( \WP_User $user, bool $remember, string $redirect_to = '' ): string {
 		$token = bin2hex( random_bytes( 32 ) );
 
+		$binding = self::binding_from_cookie();
+		if ( '' === $binding ) {
+			$binding = bin2hex( random_bytes( 32 ) );
+		}
+		self::send_binding( $binding );
+
 		$payload = array(
 			'user_id'     => (int) $user->ID,
 			'remember'    => $remember,
 			'created'     => time(),
 			'redirect_to' => $redirect_to,
+			'bind'        => hash( 'sha256', $binding ),
 		);
 
 		set_transient( self::transient_key( $token ), $payload, self::TTL );
@@ -116,6 +127,14 @@ final class Challenge {
 	public static function complete( string $token, string $provider_id, array $input ) {
 		$payload = self::payload( $token );
 		if ( null === $payload ) {
+			return new \WP_Error( 'sigil_invalid_token', __( 'This verification session has expired. Please log in again.', 'sigil-2fa' ) );
+		}
+
+		// A token is a bearer value. Without this, a page on another site could
+		// post an attacker's own token and code through a visitor's browser and
+		// sign the visitor in as the attacker. The cookie it was started with is
+		// one other sites cannot send.
+		if ( '' === $payload['bind'] || ! hash_equals( $payload['bind'], hash( 'sha256', self::binding_from_cookie() ) ) ) {
 			return new \WP_Error( 'sigil_invalid_token', __( 'This verification session has expired. Please log in again.', 'sigil-2fa' ) );
 		}
 
@@ -189,7 +208,7 @@ final class Challenge {
 	 * Mint a replacement for a token a guess just consumed, carrying the choices
 	 * made at the password step.
 	 *
-	 * @param array{user_id: int, remember: bool, created: int, redirect_to: string} $payload
+	 * @param array{user_id: int, remember: bool, created: int, redirect_to: string, bind: string} $payload
 	 */
 	private static function reissue( array $payload ): string {
 		$user = get_userdata( $payload['user_id'] );
@@ -344,7 +363,7 @@ final class Challenge {
 	}
 
 	/**
-	 * @return array{user_id: int, remember: bool, created: int, redirect_to: string}|null
+	 * @return array{user_id: int, remember: bool, created: int, redirect_to: string, bind: string}|null
 	 */
 	private static function payload( string $token ): ?array {
 		if ( '' === $token || ! preg_match( '/^[a-f0-9]{64}$/', $token ) ) {
@@ -361,6 +380,34 @@ final class Challenge {
 			'remember'    => ! empty( $raw['remember'] ),
 			'created'     => isset( $raw['created'] ) ? (int) $raw['created'] : 0,
 			'redirect_to' => isset( $raw['redirect_to'] ) && is_string( $raw['redirect_to'] ) ? $raw['redirect_to'] : '',
+			'bind'        => isset( $raw['bind'] ) && is_string( $raw['bind'] ) ? $raw['bind'] : '',
+		);
+	}
+
+	private static function binding_from_cookie(): string {
+		$raw = isset( $_COOKIE[ self::BINDING_COOKIE ] ) && is_string( $_COOKIE[ self::BINDING_COOKIE ] ) ? sanitize_text_field( wp_unslash( $_COOKIE[ self::BINDING_COOKIE ] ) ) : '';
+
+		return preg_match( '/^[a-f0-9]{64}$/', $raw ) ? $raw : '';
+	}
+
+	private static function send_binding( string $binding ): void {
+		$_COOKIE[ self::BINDING_COOKIE ] = $binding;
+
+		if ( headers_sent() ) {
+			return;
+		}
+
+		setcookie(
+			self::BINDING_COOKIE,
+			$binding,
+			array(
+				'expires'  => time() + self::BINDING_TTL,
+				'path'     => defined( 'COOKIEPATH' ) && '' !== COOKIEPATH ? COOKIEPATH : '/',
+				'domain'   => defined( 'COOKIE_DOMAIN' ) && COOKIE_DOMAIN ? COOKIE_DOMAIN : '',
+				'secure'   => is_ssl() || 'https' === wp_parse_url( home_url(), PHP_URL_SCHEME ),
+				'httponly' => true,
+				'samesite' => 'Strict',
+			)
 		);
 	}
 

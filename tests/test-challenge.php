@@ -43,6 +43,36 @@ class Test_Challenge extends WP_UnitTestCase {
 		$this->assertWPError( \Sigil\Challenge::complete( $tok, 'backup', [ 'code' => $codes[0] ] ) );
 	}
 
+	public function test_a_token_is_only_good_in_the_browser_that_started_it(): void {
+		$user  = self::factory()->user->create_and_get();
+		$p     = new \Sigil\Providers\Backup_Codes();
+		$codes = $p->generate( $user->ID );
+		$tok   = \Sigil\Challenge::start( $user, false );
+		$mine  = $_COOKIE['sigil_challenge'];
+
+		unset( $_COOKIE['sigil_challenge'] );
+		$this->assertWPError( \Sigil\Challenge::complete( $tok, 'backup', array( 'code' => $codes[0] ) ), 'no cookie' );
+
+		$_COOKIE['sigil_challenge'] = bin2hex( random_bytes( 32 ) );
+		$this->assertWPError( \Sigil\Challenge::complete( $tok, 'backup', array( 'code' => $codes[0] ) ), 'someone else\'s cookie' );
+
+		$_COOKIE['sigil_challenge'] = $mine;
+		$this->assertTrue( \Sigil\Challenge::complete( $tok, 'backup', array( 'code' => $codes[0] ) ), 'the starting browser still works' );
+	}
+
+	public function test_a_retry_token_stays_bound_to_the_same_browser(): void {
+		$user = self::factory()->user->create_and_get();
+		\Sigil\Store::set_method( $user->ID, 'backup', array( 'hashes' => array() ) );
+		$tok   = \Sigil\Challenge::start( $user, false );
+		$error = \Sigil\Challenge::complete( $tok, 'backup', array( 'code' => 'wrong' ) );
+		$next  = \Sigil\Challenge::next_token( $error, $tok );
+		$this->assertNotSame( $tok, $next );
+
+		$_COOKIE['sigil_challenge'] = bin2hex( random_bytes( 32 ) );
+		$again = \Sigil\Challenge::complete( $next, 'backup', array( 'code' => 'wrong' ) );
+		$this->assertSame( 'sigil_invalid_token', $again->get_error_code() );
+	}
+
 	public function test_spent_token_sends_a_signed_in_browser_on_not_back_to_login(): void {
 		$user = self::factory()->user->create_and_get();
 		wp_set_current_user( $user->ID );

@@ -276,4 +276,26 @@ class Test_REST extends WP_UnitTestCase {
 		);
 		$this->assertSame( 401, $replay->get_status() );
 	}
+
+	// A token minted by the attacker's own login, posted through a victim's
+	// browser, arrives without the cookie the attacker's browser was given. It
+	// used to complete anyway and set auth cookies for the attacker's account.
+	public function test_a_token_from_another_browser_is_refused(): void {
+		$user  = self::factory()->user->create_and_get();
+		$email = new \Sigil\Providers\Email();
+		\Sigil\Store::set_method( $user->ID, 'email', array( 'enrolled_at' => 1 ) );
+		$email->send_code( $user->ID );
+		$code = get_user_meta( $user->ID, '_sigil_email_debug_code', true );
+
+		$token = \Sigil\Challenge::start( $user, false, '' );
+		$_COOKIE['sigil_challenge'] = bin2hex( random_bytes( 32 ) );
+
+		$response = $this->request( 'POST', '/sigil/v1/challenge', array( 'token' => $token, 'provider' => 'email', 'code' => $code ) );
+		$this->assertSame( 401, $response->get_status() );
+		$this->assertSame( 0, get_current_user_id() );
+
+		unset( $_COOKIE['sigil_challenge'] );
+		$response = $this->request( 'POST', '/sigil/v1/challenge', array( 'token' => $token, 'provider' => 'email', 'code' => $code ) );
+		$this->assertSame( 401, $response->get_status(), 'no cookie at all is refused too' );
+	}
 }
