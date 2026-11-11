@@ -50,6 +50,28 @@ final class Request {
 	}
 
 	/**
+	 * The narrowest cookie path that reaches both wp-login.php, under the site
+	 * path, and the REST API, under the home path.
+	 *
+	 * Either path alone loses one of them when WordPress and the home page live
+	 * in different folders: home /en/ misses /wp-login.php, and a site path of
+	 * /wp/ misses /wp-json/ under a home of /.
+	 */
+	public static function login_cookie_path( string $home_path, string $site_path ): string {
+		$home   = explode( '/', trim( $home_path, '/' ) );
+		$site   = explode( '/', trim( $site_path, '/' ) );
+		$shared = array();
+		foreach ( $home as $i => $segment ) {
+			if ( '' === $segment || ! isset( $site[ $i ] ) || $site[ $i ] !== $segment ) {
+				break;
+			}
+			$shared[] = $segment;
+		}
+
+		return array() === $shared ? '/' : '/' . implode( '/', $shared ) . '/';
+	}
+
+	/**
 	 * The address as a rate limit should count it, for every counter that is
 	 * keyed by address, so they all agree on what one visitor is.
 	 *

@@ -73,6 +73,26 @@ test('the passwordless binding cookie is also sent on /', async ({ playwright, b
 	await ctx.dispose();
 });
 
+test('with WordPress in /wp/ and home at /, both binding cookies still reach the REST API on /', async ({ playwright, baseURL }) => {
+	const ctx = await playwright.request.newContext({ baseURL, extraHTTPHeaders: { 'X-E2E-Sitepath': '1' } });
+
+	const first = await ctx.post('/wp-login.php', {
+		form: { log: LOGIN, pwd: 'password', 'wp-submit': 'Log In', testcookie: '1', redirect_to: '/wp-admin/' },
+		headers: { Cookie: 'wordpress_test_cookie=WP%20Cookie%20check' },
+		maxRedirects: 0,
+	});
+	const challenge = first.headersArray().find((h) => h.name.toLowerCase() === 'set-cookie' && h.value.startsWith('sigil_challenge='));
+	expect(challenge?.value).toMatch(/path=\/(;|$)/i);
+
+	cli(['eval', "Sigil\\Policy::update( array( 'passwordless' => true ) );"]);
+	const res = await ctx.get('/?rest_route=/sigil/v1/passwordless');
+	expect(res.status()).toBe(200);
+	const passwordless = res.headersArray().find((h) => h.name.toLowerCase() === 'set-cookie' && h.value.startsWith('sigil_passwordless='));
+	expect(passwordless?.value).toMatch(/path=\/(;|$)/i);
+
+	await ctx.dispose();
+});
+
 test('the trusted-device cookie is scoped to SITECOOKIEPATH and skips the challenge on the next sign-in', async ({ playwright, baseURL }) => {
 	cli(['eval', "update_option( 'sigil_trusted_enabled', 1 );"]);
 	const id = cli(['user', 'get', LOGIN, '--field=ID']).split('\n').pop();

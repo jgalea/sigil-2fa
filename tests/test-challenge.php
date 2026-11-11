@@ -75,6 +75,16 @@ class Test_Challenge extends WP_UnitTestCase {
 		$this->assertSame( 'sigil_invalid_token', $result->get_error_code() );
 	}
 
+	public function test_the_binding_cookie_path_reaches_the_login_page_and_the_rest_api(): void {
+		$this->assertSame( '/', \Sigil\Request::login_cookie_path( '/', '/' ) );
+		$this->assertSame( '/', \Sigil\Request::login_cookie_path( '/en/', '/' ), 'home /en/, WordPress at /' );
+		$this->assertSame( '/', \Sigil\Request::login_cookie_path( '/', '/wp/' ), 'WordPress in /wp/, home at /' );
+		$this->assertSame( '/blog/', \Sigil\Request::login_cookie_path( '/blog/', '/blog/' ), 'no wider than a site in a subfolder' );
+		$this->assertSame( '/blog/', \Sigil\Request::login_cookie_path( '/blog/en/', '/blog/' ) );
+		$this->assertSame( '/a/', \Sigil\Request::login_cookie_path( '/a/b/', '/a/c/' ) );
+		$this->assertSame( '/', \Sigil\Request::login_cookie_path( '/blogs/', '/blog/' ), 'shares whole folders only' );
+	}
+
 	public function test_a_retry_token_stays_bound_to_the_same_browser(): void {
 		$user = self::factory()->user->create_and_get();
 		\Sigil\Store::set_method( $user->ID, 'backup', array( 'hashes' => array() ) );
