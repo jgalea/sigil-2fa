@@ -103,6 +103,32 @@ class Test_Challenge extends WP_UnitTestCase {
 		$this->assertSame( '', (string) get_user_meta( $user->ID, '_sigil_email_debug_code', true ) );
 	}
 
+	public function test_login_redirect_filters_apply_after_the_challenge(): void {
+		$user = self::factory()->user->create_and_get();
+		$seen = array();
+		add_filter(
+			'login_redirect',
+			static function ( $to, $requested, $who ) use ( &$seen ) {
+				$seen = array( $to, $requested, $who->ID );
+				return home_url( '/my-account/' );
+			},
+			10,
+			3
+		);
+
+		$this->assertSame( home_url( '/my-account/' ), \Sigil\Challenge::final_redirect( '', $user ) );
+		$this->assertSame( array( admin_url(), '', $user->ID ), $seen );
+	}
+
+	public function test_the_interim_flag_survives_a_retry(): void {
+		$user = self::factory()->user->create_and_get();
+		\Sigil\Store::set_method( $user->ID, 'backup', array( 'hashes' => array() ) );
+		$tok   = \Sigil\Challenge::start( $user, false, '', true );
+		$next  = \Sigil\Challenge::next_token( \Sigil\Challenge::complete( $tok, 'backup', array( 'code' => 'wrong' ) ), $tok );
+
+		$this->assertTrue( \Sigil\Challenge::context_for( $next )['interim'] );
+	}
+
 	public function test_spent_token_sends_a_signed_in_browser_on_not_back_to_login(): void {
 		$user = self::factory()->user->create_and_get();
 		wp_set_current_user( $user->ID );

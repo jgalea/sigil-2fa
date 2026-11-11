@@ -537,7 +537,7 @@ final class REST {
 			array(
 				'success'     => true,
 				'user_id'     => (int) $user->ID,
-				'redirect_to' => $context && '' !== $context['redirect_to'] ? $context['redirect_to'] : admin_url(),
+				'redirect_to' => Challenge::final_redirect( $context ? $context['redirect_to'] : '', $user ),
 			)
 		);
 	}

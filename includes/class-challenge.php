@@ -43,7 +43,7 @@ final class Challenge {
 	/**
 	 * @return string Opaque challenge token.
 	 */
-	public static function start( \WP_User $user, bool $remember, string $redirect_to = '' ): string {
+	public static function start( \WP_User $user, bool $remember, string $redirect_to = '', bool $interim = false ): string {
 		$token = bin2hex( random_bytes( 32 ) );
 
 		$binding = self::binding_from_cookie();
@@ -57,6 +57,7 @@ final class Challenge {
 			'remember'    => $remember,
 			'created'     => time(),
 			'redirect_to' => $redirect_to,
+			'interim'     => $interim,
 			'bind'        => hash( 'sha256', $binding ),
 		);
 
@@ -106,7 +107,7 @@ final class Challenge {
 	 * What the user chose at the password step. Read this before complete(),
 	 * which consumes the token.
 	 *
-	 * @return array{remember: bool, redirect_to: string}|null
+	 * @return array{remember: bool, redirect_to: string, interim: bool}|null
 	 */
 	public static function context_for( string $token ): ?array {
 		$payload = self::payload( $token );
@@ -117,7 +118,19 @@ final class Challenge {
 		return array(
 			'remember'    => $payload['remember'],
 			'redirect_to' => $payload['redirect_to'],
+			'interim'     => $payload['interim'],
 		);
+	}
+
+	/**
+	 * Where a finished sign-in goes, after the same filter core runs on its own
+	 * login redirect, so role-based destinations (shop accounts, membership
+	 * areas) still apply to people who passed a second factor.
+	 */
+	public static function final_redirect( string $requested, \WP_User $user ): string {
+		$redirect_to = '' === $requested ? admin_url() : $requested;
+
+		return (string) apply_filters( 'login_redirect', $redirect_to, $requested, $user );
 	}
 
 	/**
@@ -244,7 +257,7 @@ final class Challenge {
 	 * Mint a replacement for a token a guess just consumed, carrying the choices
 	 * made at the password step.
 	 *
-	 * @param array{user_id: int, remember: bool, created: int, redirect_to: string, bind: string} $payload
+	 * @param array{user_id: int, remember: bool, created: int, redirect_to: string, interim: bool, bind: string} $payload
 	 */
 	private static function reissue( array $payload ): string {
 		$user = get_userdata( $payload['user_id'] );
@@ -252,7 +265,7 @@ final class Challenge {
 			return '';
 		}
 
-		return self::start( $user, $payload['remember'], $payload['redirect_to'] );
+		return self::start( $user, $payload['remember'], $payload['redirect_to'], $payload['interim'] );
 	}
 
 	/**
@@ -321,7 +334,7 @@ final class Challenge {
 
 		wp_clear_auth_cookie();
 
-		$token = self::start( $user, $remember, $redirect_to );
+		$token = self::start( $user, $remember, $redirect_to, ! empty( $_REQUEST['interim-login'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- wp_login runs after WordPress validated the login POST.
 		$this->render_screen( $token, $user, null, '' );
 		exit;
 	}
@@ -402,11 +415,12 @@ final class Challenge {
 			wp_set_auth_cookie( $user->ID, $remember );
 			do_action( 'sigil_challenge_passed', $user->ID, $provider_id );
 
-			if ( '' === $redirect_to ) {
-				$redirect_to = admin_url();
+			if ( $payload_before && $payload_before['interim'] ) {
+				$this->render_interim_success();
+				exit;
 			}
 
-			wp_safe_redirect( $redirect_to );
+			wp_safe_redirect( self::final_redirect( $redirect_to, $user ) );
 			exit;
 		}
 
@@ -415,7 +429,23 @@ final class Challenge {
 	}
 
 	/**
-	 * @return array{user_id: int, remember: bool, created: int, redirect_to: string, bind: string}|null
+	 * The session-expired modal shows wp-login.php in an iframe and closes when
+	 * the page it lands on carries the interim-login-success class, which core
+	 * adds from this global.
+	 */
+	private function render_interim_success(): void {
+		global $interim_login;
+		$interim_login = 'success'; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- core's login screen reads this global.
+
+		login_header( '', '<p class="message">' . esc_html__( 'You have logged in successfully.', 'sigil-2fa' ) . '</p>' );
+		echo '</div>';
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- core hook.
+		do_action( 'login_footer' );
+		echo '</body></html>';
+	}
+
+	/**
+	 * @return array{user_id: int, remember: bool, created: int, redirect_to: string, interim: bool, bind: string}|null
 	 */
 	private static function payload( string $token ): ?array {
 		if ( '' === $token || ! preg_match( '/^[a-f0-9]{64}$/', $token ) ) {
@@ -432,6 +462,7 @@ final class Challenge {
 			'remember'    => ! empty( $raw['remember'] ),
 			'created'     => isset( $raw['created'] ) ? (int) $raw['created'] : 0,
 			'redirect_to' => isset( $raw['redirect_to'] ) && is_string( $raw['redirect_to'] ) ? $raw['redirect_to'] : '',
+			'interim'     => ! empty( $raw['interim'] ),
 			'bind'        => isset( $raw['bind'] ) && is_string( $raw['bind'] ) ? $raw['bind'] : '',
 		);
 	}
