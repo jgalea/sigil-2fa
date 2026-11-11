@@ -641,7 +641,7 @@ final class REST {
 			'methods'   => $methods,
 			'available' => $available,
 			'required'  => Policy::required_for( $user_id ),
-			'deadline'  => Policy::deadline_for( $user_id ),
+			'deadline'  => get_current_user_id() === $user_id ? Policy::deadline_for( $user_id ) : Policy::recorded_deadline( $user_id ),
 		);
 	}
 

@@ -56,7 +56,7 @@ final class Users_Column {
 			return esc_html__( 'Not set up', 'sigil-2fa' );
 		}
 
-		$deadline = Policy::deadline_for( $user_id );
+		$deadline = Policy::recorded_deadline( $user_id );
 		if ( null === $deadline ) {
 			return esc_html__( 'Not set up', 'sigil-2fa' );
 		}

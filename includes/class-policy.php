@@ -128,6 +128,21 @@ final class Policy {
 		return '' !== $cap && user_can( $user, $cap );
 	}
 
+	/**
+	 * The deadline already on record, for screens that only show it. Unlike
+	 * deadline_for() this never starts a clock, so listing users can't assign
+	 * deadlines or send warning emails as a side effect.
+	 */
+	public static function recorded_deadline( int $user_id ): ?int {
+		if ( $user_id <= 0 || ! self::required_for( $user_id ) ) {
+			return null;
+		}
+
+		$existing = get_user_meta( $user_id, self::DEADLINE_META, true );
+
+		return is_numeric( $existing ) && (int) $existing > 0 ? (int) $existing : null;
+	}
+
 	public static function deadline_for( int $user_id ): ?int {
 		if ( $user_id <= 0 || ! self::required_for( $user_id ) ) {
 			return null;

@@ -82,4 +82,22 @@ class Test_Deadline_Warning extends WP_UnitTestCase {
 
 		$this->assertSame( array(), $this->sent );
 	}
+
+	// Listing users used to assign every listed account a deadline and mail it,
+	// inline, on the admin's page view.
+	public function test_listing_users_starts_no_clocks_and_sends_no_mail(): void {
+		$user = self::factory()->user->create( array( 'role' => 'subscriber' ) );
+
+		\Sigil\Users_Column::instance()->render_column( '', 'sigil', $user );
+
+		$this->assertSame( '', (string) get_user_meta( $user, \Sigil\Policy::DEADLINE_META, true ) );
+		$this->assertSame( array(), $this->sent );
+	}
+
+	public function test_the_users_own_request_still_starts_the_clock(): void {
+		$user = self::factory()->user->create( array( 'role' => 'subscriber' ) );
+
+		$this->assertNotNull( \Sigil\Policy::deadline_for( $user ) );
+		$this->assertCount( 1, $this->sent );
+	}
 }
