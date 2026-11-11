@@ -143,21 +143,27 @@ final class Review_Prompt {
 		}
 
 		wp_enqueue_script( 'sigil-review-prompt', SIGIL_URL . 'assets/js/review-prompt.js', array(), SIGIL_VERSION, true );
+		wp_enqueue_style( 'sigil-notice', SIGIL_URL . 'assets/css/notice.css', array(), SIGIL_VERSION );
 
 		?>
-		<div class="notice notice-info is-dismissible sigil-review-prompt" data-ajax-url="<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::ACTION ) ); ?>">
-			<p><strong><?php esc_html_e( 'Sigil is protecting your login', 'sigil-2fa' ); ?></strong></p>
-			<p>
-				<?php
-				echo esc_html( $first . ' ' );
-				esc_html_e( 'If Sigil has saved you time or stress, a short review on WordPress.org helps other site owners find it.', 'sigil-2fa' );
-				?>
-			</p>
-			<p>
-				<a class="button button-primary" data-sigil-choice="review" href="<?php echo esc_url( self::action_url( 'review' ) ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Leave a review', 'sigil-2fa' ); ?></a>
-				<a class="button" data-sigil-choice="later" href="<?php echo esc_url( self::action_url( 'later' ) ); ?>"><?php esc_html_e( 'Maybe later', 'sigil-2fa' ); ?></a>
-				<a class="button button-link" data-sigil-choice="never" href="<?php echo esc_url( self::action_url( 'never' ) ); ?>"><?php esc_html_e( "Don't ask again", 'sigil-2fa' ); ?></a>
-			</p>
+		<div class="notice is-dismissible sigil-notice sigil-review-prompt" data-ajax-url="<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::ACTION ) ); ?>">
+			<div class="sigil-notice__icon" aria-hidden="true">
+				<svg viewBox="0 0 24 24" width="24" height="24" focusable="false"><circle cx="7.5" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M11.5 12H21M18 12v4" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+			</div>
+			<div class="sigil-notice__body">
+				<h3 class="sigil-notice__title"><?php esc_html_e( 'Sigil is protecting your login', 'sigil-2fa' ); ?></h3>
+				<p>
+					<?php
+					echo esc_html( $first . ' ' );
+					esc_html_e( 'If Sigil has made your logins safer, a short review on WordPress.org helps other site owners find it.', 'sigil-2fa' );
+					?>
+				</p>
+				<p class="sigil-notice__actions">
+					<a class="button button-primary" data-sigil-choice="review" href="<?php echo esc_url( self::action_url( 'review' ) ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Leave a review', 'sigil-2fa' ); ?></a>
+					<a class="button-link" data-sigil-choice="later" href="<?php echo esc_url( self::action_url( 'later' ) ); ?>"><?php esc_html_e( 'Maybe later', 'sigil-2fa' ); ?></a>
+					<a class="button-link" data-sigil-choice="never" href="<?php echo esc_url( self::action_url( 'never' ) ); ?>"><?php esc_html_e( "Don't ask again", 'sigil-2fa' ); ?></a>
+				</p>
+			</div>
 		</div>
 		<?php
 	}

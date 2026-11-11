@@ -83,6 +83,7 @@ REQUIRED=(
   "assets/css/admin.css"
   "assets/css/login.css"
   "assets/css/frontend.css"
+  "assets/css/notice.css"
   "includes/class-plugin.php"
   "includes/class-trusted-devices.php"
   "includes/class-wizard.php"
