@@ -22,6 +22,25 @@ final class Settings {
 		// administrator and lives under Network Admin -> Settings.
 		add_action( Network::is_network() ? 'network_admin_menu' : 'admin_menu', array( $this, 'register_menu' ) );
 		add_action( 'admin_post_sigil_save_settings', array( $this, 'handle_save' ) );
+		add_filter( 'sigil_enrol_redirect', array( $this, 'return_from_step_up' ), 10, 3 );
+	}
+
+	/**
+	 * Bring a confirmation given from this screen back to it.
+	 *
+	 * @param string $url
+	 * @param int    $user_id
+	 * @param string $status
+	 */
+	public function return_from_step_up( $url, $user_id, $status ): string {
+		unset( $user_id );
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified by the step-up handler that applies this filter.
+		if ( empty( $_POST['sigil_settings'] ) ) {
+			return (string) $url;
+		}
+
+		return add_query_arg( 'success' === $status ? 'confirmed' : 'sigil_status', 'success' === $status ? '1' : 'error', Network::settings_url() );
 	}
 
 	public function register_menu(): void {
@@ -61,6 +80,16 @@ final class Settings {
 		$updated = isset( $_GET['updated'] ) && '1' === sanitize_key( wp_unslash( $_GET['updated'] ) );
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice flag set by our own redirect.
 		$locked_out = isset( $_GET['lockout'] ) && '1' === sanitize_key( wp_unslash( $_GET['lockout'] ) );
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice flag set by our own redirect.
+		$bad_cap = isset( $_GET['bad_cap'] ) ? sanitize_key( wp_unslash( (string) $_GET['bad_cap'] ) ) : '';
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice flags set by our own redirects.
+		$needs_step_up = isset( $_GET['stepup'] ) && '1' === sanitize_key( wp_unslash( (string) $_GET['stepup'] ) );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$confirmed = isset( $_GET['confirmed'] ) && '1' === sanitize_key( wp_unslash( (string) $_GET['confirmed'] ) );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$step_up_error = isset( $_GET['sigil_status'] ) && 'error' === sanitize_key( wp_unslash( (string) $_GET['sigil_status'] ) ) ? Enrolment::take_message() : '';
 
 		wp_enqueue_script( 'sigil-enforce-all', SIGIL_URL . 'assets/js/enforce-all.js', array(), SIGIL_VERSION, true );
 
@@ -103,6 +132,11 @@ final class Settings {
 			$cap = sanitize_key( $raw['min_capability'] );
 		}
 
+		if ( ! Policy::is_known_capability( $cap ) ) {
+			wp_safe_redirect( add_query_arg( 'bad_cap', rawurlencode( $cap ), Network::settings_url() ) );
+			exit;
+		}
+
 		$patch = array(
 			'enabled'             => ! empty( $raw['enabled'] ),
 			'enforce_all'         => ! empty( $raw['enforce_all'] ),
@@ -119,16 +153,33 @@ final class Settings {
 			exit;
 		}
 
+		if ( isset( $_POST['sigil_trusted_days'] ) ) {
+			$trusted_roles = array();
+			$posted        = isset( $_POST['sigil_trusted_roles'] ) && is_array( $_POST['sigil_trusted_roles'] ) ? wp_unslash( $_POST['sigil_trusted_roles'] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- keys are checked against the known roles below.
+			foreach ( array_keys( wp_roles()->roles ) as $role ) {
+				if ( ! empty( $posted[ $role ] ) ) {
+					$trusted_roles[ sanitize_key( (string) $role ) ] = true;
+				}
+			}
+
+			$patch['trusted_days']    = absint( wp_unslash( $_POST['sigil_trusted_days'] ) );
+			$patch['trusted_enabled'] = ! empty( $_POST['sigil_trusted_enabled'] );
+			$patch['trusted_roles']   = $trusted_roles;
+		}
+		$patch['zero_setup'] = ! empty( $_POST['sigil_zero_setup'] );
+
+		// Loosening protection is what a hijacked session would do first, so it
+		// needs the same fresh proof as changing a method.
+		if ( array() !== Policy::weakened_by( $patch ) && ! Step_Up::allows( get_current_user_id() ) ) {
+			wp_safe_redirect( add_query_arg( 'stepup', '1', Network::settings_url() ) );
+			exit;
+		}
+
 		Policy::update( $patch );
 
-		if ( isset( $_POST['sigil_trusted_days'] ) ) {
-			Network::update_option( Trusted_Devices::OPTION_DAYS, max( 1, min( 365, absint( wp_unslash( $_POST['sigil_trusted_days'] ) ) ) ) );
-		}
 		if ( ! empty( $_POST['sigil_revoke_trusted'] ) ) {
-			Trusted_Devices::instance()->revoke_all( get_current_user_id() );
+			Trusted_Devices::instance()->revoke_everyone();
 		}
-		Zero_Setup::set_enabled( ! empty( $_POST['sigil_zero_setup'] ) );
-
 		wp_safe_redirect( add_query_arg( 'updated', '1', Network::settings_url() ) );
 		exit;
 	}

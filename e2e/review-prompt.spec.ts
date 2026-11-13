@@ -45,7 +45,9 @@ test.beforeEach(() => {
 	php(
 		`$id = get_user_by( 'login', 'admin' )->ID;` +
 			` \\Sigil\\Store::set_method( $id, 'totp', array( 'secret' => base64_encode( \\Sigil\\Crypto::encrypt( '${SECRET}' ) ), 'last_step' => 0 ) );` +
-			` delete_user_meta( $id, '_sigil_review_hidden' ); delete_user_meta( $id, '_sigil_last_factor' );`
+			` delete_user_meta( $id, '_sigil_review_hidden' ); delete_user_meta( $id, '_sigil_last_factor' );` +
+			// The secret is the same one every test, so the claims it left on the codes it used must go too.
+			` global $wpdb; $wpdb->query( 'DELETE FROM ' . \\Sigil\\Rate_Limit::table() );`
 	);
 	setActivatedDaysAgo(8);
 });

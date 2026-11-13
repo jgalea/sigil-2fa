@@ -422,10 +422,10 @@ final class Step_Up {
 		return true;
 	}
 
-	public static function error(): \WP_Error {
+	public static function error( bool $settings = false ): \WP_Error {
 		return new \WP_Error(
 			'sigil_step_up_required',
-			__( 'Confirm it is you before changing your sign-in methods.', 'sigil-2fa' ),
+			$settings ? __( 'Confirm it is you before changing security settings.', 'sigil-2fa' ) : __( 'Confirm it is you before changing your sign-in methods.', 'sigil-2fa' ),
 			array( 'status' => 403 )
 		);
 	}

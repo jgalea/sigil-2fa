@@ -39,6 +39,37 @@ final class Alerts {
 		add_action( 'sigil_before_methods_change', array( $this, 'remember' ) );
 		add_action( 'sigil_methods_changed', array( $this, 'notify' ) );
 		add_action( 'sigil_deadline_assigned', array( $this, 'warn_of_deadline' ), 10, 2 );
+		add_action( 'sigil_policy_weakened', array( $this, 'tell_admins_policy_weakened' ) );
+	}
+
+	/**
+	 * A hijacked administrator session can quietly switch protections off, so
+	 * the site's contact address hears about it whoever did it.
+	 *
+	 * @param list<string> $weakened
+	 */
+	public function tell_admins_policy_weakened( array $weakened ): void {
+		$actor = wp_get_current_user();
+		$site  = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
+
+		$subject = sprintf(
+			/* translators: %s: site name */
+			__( 'Two-factor settings were loosened on %s', 'sigil-2fa' ),
+			$site
+		);
+		$message = sprintf(
+			/* translators: 1: site name, 2: username, 3: list of what was switched off, 4: where the request came from */
+			__( "%2\$s changed the two-factor settings on %1\$s. Switched off:\n\n%3\$s\n\n%4\$s\n\nIf this wasn't you or someone you know, sign in, check the settings, and change your password.", 'sigil-2fa' ),
+			$site,
+			$actor->exists() ? $actor->user_login : __( 'A background process', 'sigil-2fa' ),
+			'- ' . implode( "\n- ", $weakened ),
+			self::origin_line()
+		);
+
+		$to = array_unique( array_filter( array( (string) get_option( 'admin_email' ), $actor->exists() ? $actor->user_email : '' ), 'is_email' ) );
+		foreach ( $to as $address ) {
+			wp_mail( $address, $subject, $message );
+		}
 	}
 
 	public function remember( int $user_id ): void {

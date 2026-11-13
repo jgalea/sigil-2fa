@@ -26,7 +26,10 @@ final class Trusted_Devices {
 	private const COOKIE       = 'sigil_pro_trusted';
 	// Public: the exporter and importer move this between sites.
 	public const OPTION_DAYS   = 'sigil_pro_trusted_days';
+	public const OPTION_ENABLED = 'sigil_trusted_enabled';
+	public const OPTION_ROLES   = 'sigil_trusted_roles';
 	private const DEFAULT_DAYS = 30;
+	private const MAX_DEVICES  = 20;
 	private const FIELD        = 'sigil_trust_device';
 	private const NONCE_FIELD  = 'sigil_trust_nonce';
 	private const NONCE        = 'sigil_trust_device';
@@ -125,6 +128,42 @@ final class Trusted_Devices {
 		}
 	}
 
+	/**
+	 * Whether this account may trust a device at all: the site switch is on,
+	 * and the account holds one of the chosen roles when any are chosen.
+	 */
+	public static function allowed_for( int $user_id ): bool {
+		if ( ! (bool) Network::get_option( self::OPTION_ENABLED, 1 ) ) {
+			return false;
+		}
+
+		$roles = array_keys( array_filter( (array) Network::get_option( self::OPTION_ROLES, array() ) ) );
+		if ( array() === $roles ) {
+			return true;
+		}
+
+		$user = get_userdata( $user_id );
+
+		return $user instanceof \WP_User && array() !== array_intersect( $roles, (array) $user->roles );
+	}
+
+	/**
+	 * Forget the trusted devices of every account on the site.
+	 */
+	public function revoke_everyone(): void {
+		delete_metadata( 'user', 0, self::META_KEY, '', true );
+	}
+
+	/**
+	 * How many accounts currently hold trusted devices.
+	 */
+	public static function accounts_with_devices(): int {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a count over user meta, shown on the settings screen only.
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM {$wpdb->usermeta} WHERE meta_key = %s", self::META_KEY ) );
+	}
+
 	public static function trust_days(): int {
 		$days = (int) Network::get_option( self::OPTION_DAYS, self::DEFAULT_DAYS );
 		if ( $days < 1 ) {
@@ -189,7 +228,7 @@ final class Trusted_Devices {
 	}
 
 	public function render_checkbox( $user ): void {
-		if ( ! $user instanceof \WP_User ) {
+		if ( ! $user instanceof \WP_User || ! self::allowed_for( (int) $user->ID ) ) {
 			return;
 		}
 		echo '<p class="sigil-trust-device"><label>';
@@ -209,7 +248,7 @@ final class Trusted_Devices {
 	 */
 	public function on_passed( int $user_id, string $provider_id ): void {
 		unset( $provider_id );
-		if ( empty( $_POST[ self::FIELD ] ) ) {
+		if ( empty( $_POST[ self::FIELD ] ) || ! self::allowed_for( $user_id ) ) {
 			return;
 		}
 		if ( ! isset( $_POST[ self::NONCE_FIELD ] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( (string) $_POST[ self::NONCE_FIELD ] ) ), self::NONCE ) ) {
@@ -223,7 +262,7 @@ final class Trusted_Devices {
 	 */
 	public function trust_current_device( int $user_id ): string {
 		$token   = bin2hex( random_bytes( 32 ) );
-		$devices = $this->prune( $user_id );
+		$devices   = array_slice( $this->prune( $user_id ), -( self::MAX_DEVICES - 1 ) );
 		$devices[] = array(
 			'hash'    => hash( 'sha256', $token ),
 			'ua'      => $this->ua_hash(),
@@ -245,7 +284,7 @@ final class Trusted_Devices {
 				$token,
 				array(
 					'expires'  => time() + self::trust_days() * DAY_IN_SECONDS,
-					'path'     => defined( 'COOKIEPATH' ) ? COOKIEPATH : '/',
+					'path'     => defined( 'SITECOOKIEPATH' ) ? SITECOOKIEPATH : '/',
 					'domain'   => defined( 'COOKIE_DOMAIN' ) ? COOKIE_DOMAIN : '',
 					'secure'   => $secure,
 					'httponly' => true,
@@ -275,17 +314,26 @@ final class Trusted_Devices {
 
 		unset( $_COOKIE[ self::COOKIE ] );
 		if ( ! headers_sent() ) {
-			setcookie(
-				self::COOKIE,
-				'',
+			$paths = array_unique(
 				array(
-					'expires'  => time() - YEAR_IN_SECONDS,
-					'path'     => defined( 'COOKIEPATH' ) ? COOKIEPATH : '/',
-					'domain'   => defined( 'COOKIE_DOMAIN' ) ? COOKIE_DOMAIN : '',
-					'httponly' => true,
-					'samesite' => 'Lax',
+					'/',
+					defined( 'COOKIEPATH' ) ? COOKIEPATH : '/',
+					defined( 'SITECOOKIEPATH' ) ? SITECOOKIEPATH : '/',
 				)
 			);
+			foreach ( $paths as $path ) {
+				setcookie(
+					self::COOKIE,
+					'',
+					array(
+						'expires'  => time() - YEAR_IN_SECONDS,
+						'path'     => $path,
+						'domain'   => defined( 'COOKIE_DOMAIN' ) ? COOKIE_DOMAIN : '',
+						'httponly' => true,
+						'samesite' => 'Lax',
+					)
+				);
+			}
 		}
 	}
 
@@ -303,7 +351,7 @@ final class Trusted_Devices {
 	}
 
 	private function token_is_valid( int $user_id, string $raw ): bool {
-		if ( '' === $raw || ! ctype_xdigit( $raw ) || 64 !== strlen( $raw ) ) {
+		if ( '' === $raw || ! ctype_xdigit( $raw ) || 64 !== strlen( $raw ) || ! self::allowed_for( $user_id ) ) {
 			return false;
 		}
 		$hash    = hash( 'sha256', $raw );

@@ -10,6 +10,10 @@ final class Challenge {
 
 	private const TTL = 5 * MINUTE_IN_SECONDS;
 
+	private const BINDING_COOKIE = 'sigil_challenge';
+
+	private const BINDING_TTL = DAY_IN_SECONDS;
+
 	/**
 	 * How many unspent tokens one account may hold at once.
 	 *
@@ -34,19 +38,28 @@ final class Challenge {
 	private function __construct() {
 		add_action( 'wp_login', array( $this, 'on_login' ), 10, 2 );
 		add_action( 'login_form_sigil', array( $this, 'handle_challenge_request' ) );
+		add_filter( 'login_message', array( $this, 'expired_message' ) );
 	}
 
 	/**
 	 * @return string Opaque challenge token.
 	 */
-	public static function start( \WP_User $user, bool $remember, string $redirect_to = '' ): string {
+	public static function start( \WP_User $user, bool $remember, string $redirect_to = '', bool $interim = false ): string {
 		$token = bin2hex( random_bytes( 32 ) );
+
+		$binding = self::binding_from_cookie();
+		if ( '' === $binding ) {
+			$binding = bin2hex( random_bytes( 32 ) );
+		}
+		self::send_binding( $binding );
 
 		$payload = array(
 			'user_id'     => (int) $user->ID,
 			'remember'    => $remember,
 			'created'     => time(),
 			'redirect_to' => $redirect_to,
+			'interim'     => $interim,
+			'bind'        => hash( 'sha256', $binding ),
 		);
 
 		set_transient( self::transient_key( $token ), $payload, self::TTL );
@@ -83,7 +96,7 @@ final class Challenge {
 
 	public static function user_for( string $token ): ?\WP_User {
 		$payload = self::payload( $token );
-		if ( null === $payload ) {
+		if ( null === $payload || ! self::is_bound( $payload ) ) {
 			return null;
 		}
 
@@ -95,7 +108,7 @@ final class Challenge {
 	 * What the user chose at the password step. Read this before complete(),
 	 * which consumes the token.
 	 *
-	 * @return array{remember: bool, redirect_to: string}|null
+	 * @return array{remember: bool, redirect_to: string, interim: bool}|null
 	 */
 	public static function context_for( string $token ): ?array {
 		$payload = self::payload( $token );
@@ -106,7 +119,19 @@ final class Challenge {
 		return array(
 			'remember'    => $payload['remember'],
 			'redirect_to' => $payload['redirect_to'],
+			'interim'     => $payload['interim'],
 		);
+	}
+
+	/**
+	 * Where a finished sign-in goes, after the same filter core runs on its own
+	 * login redirect, so role-based destinations (shop accounts, membership
+	 * areas) still apply to people who passed a second factor.
+	 */
+	public static function final_redirect( string $requested, \WP_User $user ): string {
+		$redirect_to = '' === $requested ? admin_url() : $requested;
+
+		return (string) apply_filters( 'login_redirect', $redirect_to, $requested, $user ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- core hook.
 	}
 
 	/**
@@ -116,6 +141,14 @@ final class Challenge {
 	public static function complete( string $token, string $provider_id, array $input ) {
 		$payload = self::payload( $token );
 		if ( null === $payload ) {
+			return new \WP_Error( 'sigil_invalid_token', __( 'This verification session has expired. Please log in again.', 'sigil-2fa' ) );
+		}
+
+		// A token is a bearer value. Without this, a page on another site could
+		// post an attacker's own token and code through a visitor's browser and
+		// sign the visitor in as the attacker. The cookie it was started with is
+		// one other sites cannot send.
+		if ( ! self::is_bound( $payload ) ) {
 			return new \WP_Error( 'sigil_invalid_token', __( 'This verification session has expired. Please log in again.', 'sigil-2fa' ) );
 		}
 
@@ -174,6 +207,42 @@ final class Challenge {
 	}
 
 	/**
+	 * Send a fresh email code for a live token.
+	 *
+	 * @return true|\WP_Error
+	 */
+	public static function resend( string $token ) {
+		$payload = self::payload( $token );
+		if ( null === $payload || ! self::is_bound( $payload ) ) {
+			return new \WP_Error( 'sigil_invalid_token', __( 'This verification session has expired. Please log in again.', 'sigil-2fa' ) );
+		}
+
+		$email = Providers::instance()->get( 'email' );
+		if ( ! $email instanceof Providers\Email || ! $email->is_enrolled( $payload['user_id'] ) ) {
+			return new \WP_Error( 'sigil_invalid_method', __( 'Email codes are not set up for this account.', 'sigil-2fa' ) );
+		}
+
+		$wait = $email->retry_after( $payload['user_id'] );
+		if ( $wait > 0 ) {
+			return new \WP_Error(
+				'sigil_resend_wait',
+				sprintf(
+					/* translators: %d: seconds */
+					_n( 'Please wait %d second before asking for another code.', 'Please wait %d seconds before asking for another code.', $wait, 'sigil-2fa' ),
+					$wait
+				),
+				array( 'retry_after' => $wait )
+			);
+		}
+
+		if ( ! $email->send_code( $payload['user_id'] ) ) {
+			return new \WP_Error( 'sigil_send_failed', __( 'The code could not be sent. Please try again.', 'sigil-2fa' ) );
+		}
+
+		return true;
+	}
+
+	/**
 	 * A failure the user can act on, carrying the token to try again with.
 	 *
 	 * Empty when the session could not be reissued, which the caller shows as an
@@ -189,7 +258,7 @@ final class Challenge {
 	 * Mint a replacement for a token a guess just consumed, carrying the choices
 	 * made at the password step.
 	 *
-	 * @param array{user_id: int, remember: bool, created: int, redirect_to: string} $payload
+	 * @param array{user_id: int, remember: bool, created: int, redirect_to: string, interim: bool, bind: string} $payload
 	 */
 	private static function reissue( array $payload ): string {
 		$user = get_userdata( $payload['user_id'] );
@@ -197,7 +266,7 @@ final class Challenge {
 			return '';
 		}
 
-		return self::start( $user, $payload['remember'], $payload['redirect_to'] );
+		return self::start( $user, $payload['remember'], $payload['redirect_to'], $payload['interim'] );
 	}
 
 	/**
@@ -266,9 +335,21 @@ final class Challenge {
 
 		wp_clear_auth_cookie();
 
-		$token = self::start( $user, $remember, $redirect_to );
+		$token = self::start( $user, $remember, $redirect_to, ! empty( $_REQUEST['interim-login'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- wp_login runs after WordPress validated the login POST.
 		$this->render_screen( $token, $user, null, '' );
 		exit;
+	}
+
+	/**
+	 * @param string $message
+	 */
+	public function expired_message( $message ): string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
+		if ( isset( $_GET['sigil_expired'] ) ) {
+			$message .= '<p class="message">' . esc_html__( 'Your sign-in session ended. Please sign in again.', 'sigil-2fa' ) . '</p>';
+		}
+
+		return (string) $message;
 	}
 
 	/**
@@ -279,8 +360,6 @@ final class Challenge {
 		$token = '';
 		if ( isset( $_POST['sigil_token'] ) ) {
 			$token = sanitize_text_field( wp_unslash( (string) $_POST['sigil_token'] ) );
-		} elseif ( isset( $_GET['sigil_token'] ) ) {
-			$token = sanitize_text_field( wp_unslash( (string) $_GET['sigil_token'] ) );
 		}
 
 		$user = '' !== $token ? self::user_for( $token ) : null;
@@ -299,6 +378,22 @@ final class Challenge {
 
 		$error = null;
 
+		if ( isset( $_POST['sigil_resend'] ) ) {
+			if ( ! isset( $_POST['sigil_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( (string) $_POST['sigil_nonce'] ) ), 'sigil_challenge' ) ) {
+				$this->render_screen( $token, $user, new \WP_Error( 'sigil_bad_nonce', __( 'Verification failed. Please try again.', 'sigil-2fa' ) ), 'email' );
+				exit;
+			}
+
+			$sent = self::resend( $token );
+			if ( is_wp_error( $sent ) ) {
+				$this->render_screen( $token, $user, $sent, 'email' );
+				exit;
+			}
+
+			$this->render_screen( $token, $user, null, 'email', __( 'A new code is on its way.', 'sigil-2fa' ) );
+			exit;
+		}
+
 		if ( isset( $_POST['sigil_authenticate'] ) ) {
 			if ( ! isset( $_POST['sigil_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( (string) $_POST['sigil_nonce'] ) ), 'sigil_challenge' ) ) {
 				$error = new \WP_Error( 'sigil_bad_nonce', __( 'Verification failed. Please try again.', 'sigil-2fa' ) );
@@ -309,6 +404,13 @@ final class Challenge {
 			$payload_before = self::payload( $token );
 			$input          = self::sanitize_input( wp_unslash( $_POST ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 			$result         = self::complete( $token, $provider_id, $input );
+
+			if ( is_wp_error( $result ) && 'sigil_invalid_token' === $result->get_error_code() ) {
+				// Nothing to retry: a session this browser doesn't hold, or one
+				// that ended. The password step is the way forward.
+				wp_safe_redirect( add_query_arg( 'sigil_expired', '1', wp_login_url() ) );
+				exit;
+			}
 
 			if ( is_wp_error( $result ) ) {
 				// The attempt consumed the token, so re-render against its
@@ -331,11 +433,12 @@ final class Challenge {
 			wp_set_auth_cookie( $user->ID, $remember );
 			do_action( 'sigil_challenge_passed', $user->ID, $provider_id );
 
-			if ( '' === $redirect_to ) {
-				$redirect_to = admin_url();
+			if ( $payload_before && $payload_before['interim'] ) {
+				$this->render_interim_success();
+				exit;
 			}
 
-			wp_safe_redirect( $redirect_to );
+			wp_safe_redirect( self::final_redirect( $redirect_to, $user ) );
 			exit;
 		}
 
@@ -344,7 +447,23 @@ final class Challenge {
 	}
 
 	/**
-	 * @return array{user_id: int, remember: bool, created: int, redirect_to: string}|null
+	 * The session-expired modal shows wp-login.php in an iframe and closes when
+	 * the page it lands on carries the interim-login-success class, which core
+	 * adds from this global.
+	 */
+	private function render_interim_success(): void {
+		global $interim_login;
+		$interim_login = 'success'; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- core's login screen reads this global.
+
+		login_header( '', '<p class="message">' . esc_html__( 'You have logged in successfully.', 'sigil-2fa' ) . '</p>' );
+		echo '</div>';
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- core hook.
+		do_action( 'login_footer' );
+		echo '</body></html>';
+	}
+
+	/**
+	 * @return array{user_id: int, remember: bool, created: int, redirect_to: string, interim: bool, bind: string}|null
 	 */
 	private static function payload( string $token ): ?array {
 		if ( '' === $token || ! preg_match( '/^[a-f0-9]{64}$/', $token ) ) {
@@ -361,6 +480,42 @@ final class Challenge {
 			'remember'    => ! empty( $raw['remember'] ),
 			'created'     => isset( $raw['created'] ) ? (int) $raw['created'] : 0,
 			'redirect_to' => isset( $raw['redirect_to'] ) && is_string( $raw['redirect_to'] ) ? $raw['redirect_to'] : '',
+			'interim'     => ! empty( $raw['interim'] ),
+			'bind'        => isset( $raw['bind'] ) && is_string( $raw['bind'] ) ? $raw['bind'] : '',
+		);
+	}
+
+	/**
+	 * @param array{bind: string} $payload
+	 */
+	private static function is_bound( array $payload ): bool {
+		return '' !== $payload['bind'] && hash_equals( $payload['bind'], hash( 'sha256', self::binding_from_cookie() ) );
+	}
+
+	private static function binding_from_cookie(): string {
+		$raw = isset( $_COOKIE[ self::BINDING_COOKIE ] ) && is_string( $_COOKIE[ self::BINDING_COOKIE ] ) ? sanitize_text_field( wp_unslash( $_COOKIE[ self::BINDING_COOKIE ] ) ) : '';
+
+		return preg_match( '/^[a-f0-9]{64}$/', $raw ) ? $raw : '';
+	}
+
+	private static function send_binding( string $binding ): void {
+		$_COOKIE[ self::BINDING_COOKIE ] = $binding;
+
+		if ( headers_sent() ) {
+			return;
+		}
+
+		setcookie(
+			self::BINDING_COOKIE,
+			$binding,
+			array(
+				'expires'  => time() + self::BINDING_TTL,
+				'path'     => Request::login_cookie_path( COOKIEPATH, SITECOOKIEPATH ),
+				'domain'   => defined( 'COOKIE_DOMAIN' ) && COOKIE_DOMAIN ? COOKIE_DOMAIN : '',
+				'secure'   => is_ssl() || 'https' === wp_parse_url( home_url(), PHP_URL_SCHEME ),
+				'httponly' => true,
+				'samesite' => 'Strict',
+			)
 		);
 	}
 
@@ -425,7 +580,7 @@ final class Challenge {
 	/**
 	 * @param \WP_Error|null $error
 	 */
-	private function render_screen( string $token, \WP_User $user, $error, string $provider_id ): void {
+	private function render_screen( string $token, \WP_User $user, $error, string $provider_id, string $notice = '' ): void {
 		$enrolled = Providers::instance()->enrolled_for( $user->ID );
 		if ( [] === $enrolled ) {
 			wp_safe_redirect( wp_login_url() );
@@ -476,7 +631,7 @@ final class Challenge {
 			add_filter( 'login_errors', $announce );
 			login_header(
 				$login_title,
-				'',
+				'' === $notice ? '' : '<p class="message">' . esc_html( $notice ) . '</p>',
 				$challenge_error instanceof \WP_Error ? $challenge_error : new \WP_Error()
 			);
 			remove_filter( 'login_errors', $announce );
@@ -511,6 +666,9 @@ final class Challenge {
 <body class="login no-js login-action-sigil wp-core-ui">
 	<div id="login">
 		<?php
+		if ( '' !== $notice ) {
+			echo '<p class="message" role="status">' . esc_html( $notice ) . '</p>';
+		}
 		if ( $challenge_error instanceof \WP_Error && $challenge_error->has_errors() ) {
 			echo '<div id="login_error" role="alert">' . wp_kses_post( $challenge_error->get_error_message() ) . '</div>';
 		}

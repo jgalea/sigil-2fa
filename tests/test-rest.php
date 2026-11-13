@@ -172,6 +172,17 @@ class Test_REST extends WP_UnitTestCase {
 		$this->assertTrue( \Sigil\Policy::get()['roles']['administrator'] );
 	}
 
+	public function test_a_capability_no_role_has_is_refused(): void {
+		wp_set_current_user( $this->user_manager() );
+
+		$bad = $this->request( 'POST', '/sigil/v1/policy', array( 'min_capability' => 'manage_optoins' ) );
+		$this->assertSame( 400, $bad->get_status() );
+		$this->assertSame( '', \Sigil\Policy::get()['min_capability'] );
+
+		$good = $this->request( 'POST', '/sigil/v1/policy', array( 'min_capability' => 'manage_options' ) );
+		$this->assertSame( 200, $good->get_status() );
+	}
+
 	public function test_challenge_rejects_a_bad_token(): void {
 		$this->assertSame( 401, $this->request( 'GET', '/sigil/v1/challenge', array( 'token' => 'nope' ) )->get_status() );
 	}
@@ -275,5 +286,56 @@ class Test_REST extends WP_UnitTestCase {
 			)
 		);
 		$this->assertSame( 401, $replay->get_status() );
+	}
+
+	// A token minted by the attacker's own login, posted through a victim's
+	// browser, arrives without the cookie the attacker's browser was given. It
+	// used to complete anyway and set auth cookies for the attacker's account.
+	public function test_a_token_from_another_browser_is_refused(): void {
+		$user  = self::factory()->user->create_and_get();
+		$email = new \Sigil\Providers\Email();
+		\Sigil\Store::set_method( $user->ID, 'email', array( 'enrolled_at' => 1 ) );
+		$email->send_code( $user->ID );
+		$code = get_user_meta( $user->ID, '_sigil_email_debug_code', true );
+
+		$token = \Sigil\Challenge::start( $user, false, '' );
+		$_COOKIE['sigil_challenge'] = bin2hex( random_bytes( 32 ) );
+
+		$response = $this->request( 'POST', '/sigil/v1/challenge', array( 'token' => $token, 'provider' => 'email', 'code' => $code ) );
+		$this->assertSame( 401, $response->get_status() );
+		$this->assertSame( 0, get_current_user_id() );
+
+		unset( $_COOKIE['sigil_challenge'] );
+		$response = $this->request( 'POST', '/sigil/v1/challenge', array( 'token' => $token, 'provider' => 'email', 'code' => $code ) );
+		$this->assertSame( 401, $response->get_status(), 'no cookie at all is refused too' );
+	}
+
+	public function test_reading_a_challenge_needs_the_browser_that_started_it(): void {
+		$user = self::factory()->user->create_and_get( array( 'user_login' => 'bound_reader' ) );
+		\Sigil\Store::set_method( $user->ID, 'email', array( 'enrolled_at' => 1 ) );
+		$token = \Sigil\Challenge::start( $user, false, '' );
+
+		$mine = $this->request( 'GET', '/sigil/v1/challenge', array( 'token' => $token ) );
+		$this->assertSame( 200, $mine->get_status(), 'the starting browser can read it' );
+
+		$_COOKIE['sigil_challenge'] = bin2hex( random_bytes( 32 ) );
+		$theirs = $this->request( 'GET', '/sigil/v1/challenge', array( 'token' => $token ) );
+		$this->assertSame( 401, $theirs->get_status() );
+		$this->assertStringNotContainsString( 'bound_reader', (string) wp_json_encode( $theirs->get_data() ) );
+	}
+
+	public function test_the_rest_flow_can_ask_for_an_email_code(): void {
+		$user = self::factory()->user->create_and_get();
+		\Sigil\Store::set_method( $user->ID, 'email', array( 'enrolled_at' => 1 ) );
+		$token = \Sigil\Challenge::start( $user, false, '' );
+
+		$first = $this->request( 'POST', '/sigil/v1/challenge/send', array( 'token' => $token ) );
+		$this->assertSame( 200, $first->get_status() );
+		$this->assertNotSame( '', (string) get_user_meta( $user->ID, '_sigil_email_debug_code', true ) );
+
+		$second = $this->request( 'POST', '/sigil/v1/challenge/send', array( 'token' => $token ) );
+		$this->assertSame( 429, $second->get_status() );
+
+		$this->assertSame( 401, $this->request( 'POST', '/sigil/v1/challenge/send', array( 'token' => str_repeat( 'a', 64 ) ) )->get_status() );
 	}
 }

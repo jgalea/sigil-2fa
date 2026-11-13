@@ -10,6 +10,7 @@
     "wp-content/mu-plugins/e2e-ajax-login.php": "./e2e/mu-ajax-login.php",
     "wp-content/mu-plugins/e2e-skip-challenge.php": "./e2e/mu-skip-challenge.php",
     "wp-content/mu-plugins/e2e-rest-session.php": "./e2e/mu-rest-session.php",
-    "wp-content/mu-plugins/e2e-webauthn-origin.php": "./e2e/mu-webauthn-origin.php"
+    "wp-content/mu-plugins/e2e-webauthn-origin.php": "./e2e/mu-webauthn-origin.php",
+    "wp-content/mu-plugins/e2e-cookie-path.php": "./e2e/mu-cookie-path.php"
   }
 }

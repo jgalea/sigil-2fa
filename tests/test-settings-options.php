@@ -56,7 +56,8 @@ class Test_Settings_Options extends WP_UnitTestCase {
 
 		$this->submit(
 			array(
-				'sigil_trusted_days'   => '14',
+				'sigil_trusted_days'    => '14',
+				'sigil_trusted_enabled' => '1',
 				'sigil_zero_setup'     => '1',
 				'sigil_revoke_trusted' => '1',
 			)
@@ -67,6 +68,15 @@ class Test_Settings_Options extends WP_UnitTestCase {
 		$this->assertFalse( \Sigil\Trusted_Devices::instance()->is_trusted( $admin, $token ) );
 	}
 
+	public function test_a_capability_typo_is_refused_instead_of_saved(): void {
+		wp_set_current_user( $this->admin() );
+
+		$where = $this->submit( array( 'sigil_policy' => array( 'enabled' => '1', 'min_capability' => 'manage_optoins' ) ) );
+
+		$this->assertStringContainsString( 'bad_cap=manage_optoins', $where );
+		$this->assertFalse( \Sigil\Policy::get()['enabled'], 'nothing in the form was saved' );
+	}
+
 	public function test_the_trusted_days_are_clamped(): void {
 		wp_set_current_user( $this->admin() );
 
@@ -75,6 +85,57 @@ class Test_Settings_Options extends WP_UnitTestCase {
 		);
 
 		$this->assertSame( 365, \Sigil\Trusted_Devices::trust_days() );
+	}
+
+	public function test_trusted_devices_can_be_switched_off_for_the_site(): void {
+		$user  = self::factory()->user->create();
+		$token = \Sigil\Trusted_Devices::instance()->trust_current_device( $user );
+		$this->assertTrue( \Sigil\Trusted_Devices::instance()->is_trusted( $user, $token ) );
+
+		wp_set_current_user( $this->admin() );
+		$this->submit( array( 'sigil_trusted_days' => '30' ) );
+
+		$this->assertFalse( \Sigil\Trusted_Devices::allowed_for( $user ) );
+		$this->assertFalse( \Sigil\Trusted_Devices::instance()->is_trusted( $user, $token ), 'an old token stops working' );
+
+		ob_start();
+		\Sigil\Trusted_Devices::instance()->render_checkbox( get_userdata( $user ) );
+		$this->assertSame( '', (string) ob_get_clean(), 'and the box is not offered' );
+	}
+
+	public function test_trusted_devices_can_be_limited_to_chosen_roles(): void {
+		wp_set_current_user( $this->admin() );
+		$this->submit(
+			array(
+				'sigil_trusted_days'    => '30',
+				'sigil_trusted_enabled' => '1',
+				'sigil_trusted_roles'   => array( 'editor' => '1' ),
+			)
+		);
+
+		$this->assertTrue( \Sigil\Trusted_Devices::allowed_for( self::factory()->user->create( array( 'role' => 'editor' ) ) ) );
+		$this->assertFalse( \Sigil\Trusted_Devices::allowed_for( self::factory()->user->create( array( 'role' => 'subscriber' ) ) ) );
+	}
+
+	public function test_an_admin_can_forget_every_users_devices(): void {
+		$a       = self::factory()->user->create();
+		$b       = self::factory()->user->create();
+		$token_a = \Sigil\Trusted_Devices::instance()->trust_current_device( $a );
+		$token_b = \Sigil\Trusted_Devices::instance()->trust_current_device( $b );
+		$this->assertSame( 2, \Sigil\Trusted_Devices::accounts_with_devices() );
+
+		wp_set_current_user( $this->admin() );
+		$this->submit(
+			array(
+				'sigil_trusted_days'    => '30',
+				'sigil_trusted_enabled' => '1',
+				'sigil_revoke_trusted'  => '1',
+			)
+		);
+
+		$this->assertFalse( \Sigil\Trusted_Devices::instance()->is_trusted( $a, $token_a ) );
+		$this->assertFalse( \Sigil\Trusted_Devices::instance()->is_trusted( $b, $token_b ) );
+		$this->assertSame( 0, \Sigil\Trusted_Devices::accounts_with_devices() );
 	}
 
 	// Pro stored these under its own names before they moved into the free

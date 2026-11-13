@@ -25,12 +25,45 @@ if ( ! isset( $roles ) || ! is_array( $roles ) ) {
 }
 $updated    = ! empty( $updated );
 $locked_out = ! empty( $locked_out );
+$bad_cap    = isset( $bad_cap ) ? (string) $bad_cap : '';
+$needs_step_up = ! empty( $needs_step_up );
+$confirmed     = ! empty( $confirmed );
+$step_up_error = isset( $step_up_error ) ? (string) $step_up_error : '';
 ?>
 <div class="wrap">
 	<h1><?php echo esc_html__( 'Sigil', 'sigil-2fa' ); ?></h1>
 
 	<?php if ( $updated ) : ?>
 		<div class="notice notice-success is-dismissible"><p><?php echo esc_html__( 'Settings saved.', 'sigil-2fa' ); ?></p></div>
+	<?php endif; ?>
+
+	<?php if ( $confirmed ) : ?>
+		<div class="notice notice-success is-dismissible"><p><?php echo esc_html__( 'Confirmed. Save the settings again to apply your changes.', 'sigil-2fa' ); ?></p></div>
+	<?php endif; ?>
+
+	<?php if ( '' !== $step_up_error ) : ?>
+		<div class="notice notice-error"><p><?php echo esc_html( $step_up_error ); ?></p></div>
+	<?php endif; ?>
+
+	<?php if ( $needs_step_up ) : ?>
+		<div class="notice notice-warning" style="padding:12px 16px;max-width:720px;">
+			<p><?php echo esc_html__( 'Nothing was saved. Loosening these settings needs a quick confirmation that it is you.', 'sigil-2fa' ); ?></p>
+			<?php \Sigil\Enrolment::instance()->render_step_up_form( get_current_user_id(), '', array( 'sigil_settings' => '1' ) ); ?>
+		</div>
+	<?php endif; ?>
+
+	<?php if ( '' !== $bad_cap ) : ?>
+		<div class="notice notice-error"><p>
+			<?php
+			echo esc_html(
+				sprintf(
+					/* translators: %s: the capability that was typed */
+					__( 'Nothing was saved. "%s" is not a capability any role on this site has, so it would cover nobody.', 'sigil-2fa' ),
+					$bad_cap
+				)
+			);
+			?>
+		</p></div>
 	<?php endif; ?>
 
 	<?php if ( $locked_out ) : ?>
@@ -115,7 +148,12 @@ $locked_out = ! empty( $locked_out );
 					<label for="sigil-min-capability"><?php echo esc_html__( 'Minimum capability', 'sigil-2fa' ); ?></label>
 				</th>
 				<td>
-					<input type="text" class="regular-text" id="sigil-min-capability" name="sigil_policy[min_capability]" value="<?php echo esc_attr( (string) $policy['min_capability'] ); ?>" />
+					<input type="text" class="regular-text" id="sigil-min-capability" name="sigil_policy[min_capability]" value="<?php echo esc_attr( (string) $policy['min_capability'] ); ?>" list="sigil-capabilities" autocomplete="off" />
+					<datalist id="sigil-capabilities">
+						<?php foreach ( array( 'manage_options', 'edit_others_posts', 'publish_posts', 'edit_posts', 'manage_woocommerce' ) as $sigil_cap ) : ?>
+							<option value="<?php echo esc_attr( $sigil_cap ); ?>"></option>
+						<?php endforeach; ?>
+					</datalist>
 					<p class="description">
 						<?php echo esc_html__( 'Optional. Any user with this capability is covered regardless of role. Roles and capability are combined with OR.', 'sigil-2fa' ); ?>
 					</p>
@@ -187,19 +225,51 @@ $locked_out = ! empty( $locked_out );
 			</tr>
 
 			<tr>
-				<th scope="row">
-					<label for="sigil-trusted-days"><?php echo esc_html__( 'Remember this device', 'sigil-2fa' ); ?></label>
-				</th>
+				<th scope="row"><?php echo esc_html__( 'Remember this device', 'sigil-2fa' ); ?></th>
 				<td>
-					<input type="number" min="1" max="365" step="1" id="sigil-trusted-days" name="sigil_trusted_days" value="<?php echo esc_attr( (string) \Sigil\Trusted_Devices::trust_days() ); ?>" class="small-text" />
-					<?php echo esc_html__( 'days', 'sigil-2fa' ); ?>
-					<p class="description">
-						<?php echo esc_html__( 'How long a device stays trusted after someone ticks the box on the challenge screen. Trust ends when they change their password or their methods.', 'sigil-2fa' ); ?>
-					</p>
 					<label>
-						<input type="checkbox" name="sigil_revoke_trusted" value="1" />
-						<?php echo esc_html__( 'Forget my trusted devices', 'sigil-2fa' ); ?>
+						<input type="checkbox" name="sigil_trusted_enabled" value="1" <?php checked( (bool) \Sigil\Network::get_option( \Sigil\Trusted_Devices::OPTION_ENABLED, 1 ) ); ?> />
+						<?php echo esc_html__( 'Let people skip the second step on a device they trust', 'sigil-2fa' ); ?>
 					</label>
+					<p>
+						<label for="sigil-trusted-days"><?php echo esc_html__( 'Trusted for', 'sigil-2fa' ); ?></label>
+						<input type="number" min="1" max="365" step="1" id="sigil-trusted-days" name="sigil_trusted_days" value="<?php echo esc_attr( (string) \Sigil\Trusted_Devices::trust_days() ); ?>" class="small-text" />
+						<?php echo esc_html__( 'days', 'sigil-2fa' ); ?>
+					</p>
+					<?php if ( array() !== $roles ) : ?>
+						<fieldset>
+							<legend class="screen-reader-text"><?php echo esc_html__( 'Roles that may trust a device', 'sigil-2fa' ); ?></legend>
+							<p class="description"><?php echo esc_html__( 'Roles that may trust a device. Leave all unticked to allow every role.', 'sigil-2fa' ); ?></p>
+							<?php $trusted_roles = (array) \Sigil\Network::get_option( \Sigil\Trusted_Devices::OPTION_ROLES, array() ); ?>
+							<?php foreach ( $roles as $role_slug => $role_obj ) : ?>
+								<?php
+								$role_slug  = (string) $role_slug;
+								$role_label = is_array( $role_obj ) && isset( $role_obj['name'] ) ? translate_user_role( $role_obj['name'] ) : $role_slug;
+								?>
+								<label style="display:block;margin-bottom:4px;">
+									<input type="checkbox" name="sigil_trusted_roles[<?php echo esc_attr( $role_slug ); ?>]" value="1" <?php checked( ! empty( $trusted_roles[ $role_slug ] ) ); ?> />
+									<?php echo esc_html( $role_label ); ?>
+								</label>
+							<?php endforeach; ?>
+						</fieldset>
+					<?php endif; ?>
+					<p class="description">
+						<?php echo esc_html__( 'Trust ends when someone changes their password or their methods.', 'sigil-2fa' ); ?>
+					</p>
+					<p>
+						<label>
+							<input type="checkbox" name="sigil_revoke_trusted" value="1" />
+							<?php
+							echo esc_html(
+								sprintf(
+									/* translators: %d: number of accounts that currently have trusted devices */
+									_n( 'Forget the trusted devices of every user (%d account has some)', 'Forget the trusted devices of every user (%d accounts have some)', \Sigil\Trusted_Devices::accounts_with_devices(), 'sigil-2fa' ),
+									\Sigil\Trusted_Devices::accounts_with_devices()
+								)
+							);
+							?>
+						</label>
+					</p>
 				</td>
 			</tr>
 
@@ -216,6 +286,10 @@ $locked_out = ! empty( $locked_out );
 				</td>
 			</tr>
 		</table>
+
+		<p class="description">
+			<?php echo esc_html__( 'Authenticator secrets are encrypted with a key derived from your WordPress salts. Define SIGIL_KEY in wp-config.php to keep them readable when the salts are rotated.', 'sigil-2fa' ); ?>
+		</p>
 
 		<?php submit_button( __( 'Save settings', 'sigil-2fa' ) ); ?>
 	</form>

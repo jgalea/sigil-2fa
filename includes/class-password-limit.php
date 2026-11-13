@@ -153,14 +153,14 @@ final class Password_Limit {
 			}
 			// Turned away without a guess, so the address is not charged.
 			Rate_Limit::release( $ip_key );
-			return self::refused();
+			return self::refused( Rate_Limit::retry_after( $account_key ) );
 		}
 
 		if ( $ip > $limits['ip_attempts'] ) {
 			if ( ! $trusted ) {
 				Rate_Limit::release( $account_key );
 			}
-			return self::refused();
+			return self::refused( Rate_Limit::retry_after( $ip_key ) );
 		}
 
 		if ( $user instanceof \WP_User ) {
@@ -176,6 +176,34 @@ final class Password_Limit {
 		}
 
 		return $user;
+	}
+
+	/**
+	 * Seconds an account stays closed to sign-in, counting the password limit
+	 * and the second-factor limit; 0 when it is open.
+	 */
+	public static function locked_for( \WP_User $user ): int {
+		$wait = 0;
+
+		if ( self::enabled() ) {
+			$attempts = self::limits()['attempts'];
+			foreach ( array( (string) $user->user_login, (string) $user->user_email ) as $typed ) {
+				if ( '' === $typed ) {
+					continue;
+				}
+				$key = self::account_key( $typed );
+				if ( Rate_Limit::count( $key ) > $attempts ) {
+					$wait = max( $wait, Rate_Limit::retry_after( $key ) );
+				}
+			}
+		}
+
+		$challenge = 'u:' . (int) $user->ID;
+		if ( Rate_Limit::blocked( $challenge ) ) {
+			$wait = max( $wait, Rate_Limit::retry_after( $challenge ) );
+		}
+
+		return $wait;
 	}
 
 	/**
@@ -361,10 +389,16 @@ final class Password_Limit {
 		return '' === $key ? '' : 'pw:' . $key;
 	}
 
-	private static function refused(): \WP_Error {
+	private static function refused( int $seconds ): \WP_Error {
+		$minutes = max( 1, (int) ceil( $seconds / MINUTE_IN_SECONDS ) );
+
 		return new \WP_Error(
 			'sigil_password_limited',
-			__( 'Too many failed sign-in attempts. Please wait a few minutes and try again.', 'sigil-2fa' ),
+			sprintf(
+				/* translators: %d: minutes */
+				_n( 'Too many failed sign-in attempts. Try again in about %d minute.', 'Too many failed sign-in attempts. Try again in about %d minutes.', $minutes, 'sigil-2fa' ),
+				$minutes
+			),
 			array( 'status' => 429 )
 		);
 	}

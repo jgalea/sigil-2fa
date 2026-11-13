@@ -70,7 +70,19 @@ final class App_Passwords {
 	}
 
 	public static function is_api_request(): bool {
-		return ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) || ( defined( 'REST_REQUEST' ) && REST_REQUEST );
+		$api = ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST )
+			|| ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+			|| ( defined( 'GRAPHQL_REQUEST' ) && GRAPHQL_REQUEST );
+
+		/**
+		 * Filter whether this request is a non-interactive API sign-in, where a
+		 * password alone must not open a session for an account with 2FA.
+		 * Endpoints that call wp_authenticate() and issue their own token
+		 * outside REST and XML-RPC can opt in here.
+		 *
+		 * @param bool $api Whether the request is an API request.
+		 */
+		return (bool) apply_filters( 'sigil_is_api_request', $api );
 	}
 
 	/**

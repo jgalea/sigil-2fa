@@ -6,11 +6,14 @@ namespace Sigil\Providers;
 
 use Sigil\Crypto;
 use Sigil\Provider;
+use Sigil\Rate_Limit;
 use Sigil\Store;
 
 defined( 'ABSPATH' ) || exit;
 
 final class Backup_Codes implements Provider {
+
+	private const LOW_AT = 2;
 
 	private const CODE_LENGTH = 8;
 	private const CODE_COUNT  = 10;
@@ -99,6 +102,14 @@ final class Backup_Codes implements Provider {
 		return array() !== $this->read_display_codes( $user_id );
 	}
 
+	/**
+	 * Whether the codes are close enough to gone that the owner should replace
+	 * them before the day they are the only way in.
+	 */
+	public function is_low( int $user_id ): bool {
+		return $this->is_enrolled( $user_id ) && $this->remaining( $user_id ) <= self::LOW_AT;
+	}
+
 	public function remaining( int $user_id ): int {
 		$methods = Store::methods( $user_id );
 		if ( ! isset( $methods[ $this->id() ]['codes'] ) || ! is_array( $methods[ $this->id() ]['codes'] ) ) {
@@ -127,6 +138,9 @@ final class Backup_Codes implements Provider {
 						$this->remaining( $user_id )
 					)
 				) . '</p>';
+				if ( $this->is_low( $user_id ) ) {
+					echo '<div class="notice notice-warning inline"><p>' . esc_html__( 'You are running low on backup codes. Generate new ones now and keep them somewhere safe.', 'sigil-2fa' ) . '</p></div>';
+				}
 			} else {
 				echo '<p>' . esc_html__( 'Backup codes have not been generated yet.', 'sigil-2fa' ) . '</p>';
 			}
@@ -196,6 +210,11 @@ final class Backup_Codes implements Provider {
 				continue;
 			}
 			if ( wp_check_password( $code, $entry['hash'] ) ) {
+				// Same race as a TOTP step: only the request that takes the
+				// claim first gets to spend the code.
+				if ( 1 !== Rate_Limit::reserve( 'backup:' . $user_id . ':' . md5( $entry['hash'] ), 2 * MINUTE_IN_SECONDS ) ) {
+					return false;
+				}
 				$codes[ $i ]['used'] = true;
 				$matched             = true;
 				break;

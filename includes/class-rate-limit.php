@@ -212,6 +212,27 @@ final class Rate_Limit {
 		return (int) $row->attempts;
 	}
 
+	/**
+	 * Seconds until the bucket's window runs out; 0 when it is empty or over.
+	 */
+	public static function retry_after( string $key ): int {
+		if ( '' === $key ) {
+			return 0;
+		}
+
+		global $wpdb;
+
+		$table = self::table();
+
+		$prior   = $wpdb->suppress_errors( true );
+		$expires = $wpdb->get_var(
+			$wpdb->prepare( "SELECT expires FROM {$table} WHERE bucket = %s AND attempts > 0", self::bucket( $key ) )
+		);
+		$wpdb->suppress_errors( $prior );
+
+		return max( 0, (int) $expires - time() );
+	}
+
 	public static function clear( string $key ): void {
 		if ( '' === $key ) {
 			return;

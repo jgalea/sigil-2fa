@@ -49,7 +49,7 @@ Routes under `sigil/v1`:
 | `/policy` | GET, POST | `manage_options`, or `manage_network_options` on a network |
 | `/challenge` | GET, POST | the challenge token issued after the password step |
 
-The challenge routes let a decoupled front end run the second step itself, including passkeys. None of this adds a second factor to token authentication: a request authenticated with an application password never reaches the interactive login.
+The challenge routes let a decoupled front end run the second step itself, including passkeys. A challenge belongs to the browser that started it: the password step sets an HttpOnly `sigil_challenge` cookie, and `/challenge` only answers requests that send it back. A client has to keep a cookie jar (browser `fetch` with `credentials: 'include'` against the same site, or `curl -c`/`-b`), and a front end on another origin has to be served from, or proxied through, the WordPress site's own domain so the cookie is first-party. None of this adds a second factor to token authentication: a request authenticated with an application password never reaches the interactive login.
 
 ## Recovery
 
@@ -58,6 +58,12 @@ Backup codes are shown at first enrolment. An administrator can reset another us
 ## Application passwords
 
 Application passwords authenticate the REST API and XML-RPC, and 2FA does not apply to them. Sigil says so on its settings screen and lets you disable them per role.
+
+## Integrating
+
+A sign-in that sets the auth cookie without `wp_signon()` (social login, magic links) is held for accounts with a second factor, and the `sigil_session_held` action fires with the user ID. Once your code has verified the person itself, call `\Sigil\Login_Guard::grant( $user_id )` before `wp_set_auth_cookie()`.
+
+Changes to the password and email of your own account are confirmed through `\Sigil\Step_Up::allows( $user_id )`. Core, the REST users endpoint and WooCommerce are covered; a front-end account form from another plugin can call it before `wp_update_user()` or `wp_set_password()`.
 
 ## Development
 
